@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hodlbook"
+version = "0.1.0"
+description = "A crypto paper-trading portfolio ledger API, built on pydynantic single-table DynamoDB."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Robert Ruben" }]
+keywords = ["crypto", "paper-trading", "portfolio", "dynamodb", "pydynantic", "fastapi"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydynantic>=1.0",
+    "fastapi>=0.110",
+    "pydantic>=2.0",
+    "boto3>=1.26",
+    "typing-extensions>=4.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "moto[dynamodb]>=5.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "httpx>=0.27",
+    "mypy>=1.8",
+    "ruff>=0.4",
+    "boto3-stubs[dynamodb]",
+    "uvicorn>=0.29",
+]
+
+[project.urls]
+Homepage = "https://github.com/robertruben98/hodlbook"
+Repository = "https://github.com/robertruben98/hodlbook"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hodlbook"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W", "C4", "SIM"]
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/hodlbook"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["hodlbook"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]
