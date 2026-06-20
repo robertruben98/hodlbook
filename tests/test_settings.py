@@ -2,18 +2,37 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from decimal import Decimal
+from typing import Any
 
+import boto3
 import pytest
+from moto import mock_aws
 
 from hodlbook.api import create_app
 from hodlbook.settings import Settings, get_settings
+from hodlbook.storage import create_table
 
 
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> None:
     """Drop the cached singleton before each test so env edits take effect."""
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def dynamodb_client() -> Iterator[Any]:
+    """A fresh moto-mocked DynamoDB client with the ``hodlbook`` table created.
+
+    ``create_app`` builds a real boto3 client from whatever it's handed, so the
+    tests must inject a mocked one -- passing ``None`` would force botocore to
+    construct a live client and raise ``NoRegionError`` in a clean CI env.
+    """
+    with mock_aws():
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        create_table(client)
+        yield client
 
 
 def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -62,19 +81,21 @@ def test_get_settings_is_cached() -> None:
     assert get_settings() is get_settings()
 
 
-def test_create_app_honors_passed_settings() -> None:
+def test_create_app_honors_passed_settings(dynamodb_client: Any) -> None:
     settings = Settings(price_ttl_seconds=999)
-    app = create_app(client=None, settings=settings)
+    app = create_app(dynamodb_client, settings=settings)
 
     assert app.state.settings is settings
     assert app.state.cache.ttl_seconds == 999
 
 
-def test_create_app_defaults_to_get_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_app_defaults_to_get_settings(
+    dynamodb_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _clear_env(monkeypatch)
     monkeypatch.setenv("HODLBOOK_PRICE_TTL_SECONDS", "42")
     get_settings.cache_clear()
 
-    app = create_app(client=None)
+    app = create_app(dynamodb_client)
 
     assert app.state.cache.ttl_seconds == 42
