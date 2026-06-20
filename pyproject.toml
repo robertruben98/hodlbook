@@ -52,6 +52,9 @@ docs = [
     "mkdocstrings[python]>=0.25,<1.1",
 ]
 
+[project.scripts]
+hodlbook = "hodlbook.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/robertruben98/hodlbook"
 Repository = "https://github.com/robertruben98/hodlbook"
