@@ -33,4 +33,4 @@ jobs:
         run: mypy
 
       - name: Tests + coverage
-        run: pytest --cov=hodlbook --cov-report=term-missing
+        run: pytest --cov=hodlbook --cov-report=term-missing --cov-fail-under=90
