@@ -132,6 +132,8 @@ class Models:
     Alert: type[Entity]
     ApiKey: type[Entity]
     Order: type[Entity]
+    Snapshot: type[Entity]
+    LeaderboardEntry: type[Entity]
 
 
 def build_models(table: Table) -> Models:
@@ -239,6 +241,32 @@ def build_models(table: Table) -> Models:
                 sk="ORDER#{order_id}",
             )
 
+    class Snapshot(Entity, table=table, name="snapshot"):
+        portfolio_id: str
+        taken_at: str
+        total_value: Decimal
+        cash: Decimal
+        holdings_value: Decimal
+        total_unrealized_pnl: Decimal
+
+        class Meta:
+            primary = key(pk="PORTFOLIO#{portfolio_id}", sk="SNAPSHOT#{taken_at}")
+
+    class LeaderboardEntry(Entity, table=table, name="leaderboard_entry"):
+        user_id: str
+        portfolio_id: str
+        total_value: Decimal
+        rank_key: str
+        taken_at: str
+
+        class Meta:
+            primary = key(pk="LEADERBOARD", sk="PORTFOLIO#{user_id}#{portfolio_id}")
+            # GSI1 partition prefix "LEADERBOARD" is distinct from Order's GSI2
+            # partition prefix "ORDER#..." (and from Trade's "SYMBOL#..." on GSI1)
+            # -- the rank_key is left zero-padded so the String-typed GSI sorts
+            # numerically; a descending query yields the highest values first.
+            by_value = key(index="GSI1", pk="LEADERBOARD", sk="{rank_key}")
+
     return Models(
         Portfolio=Portfolio,
         Holding=Holding,
@@ -247,4 +275,6 @@ def build_models(table: Table) -> Models:
         Alert=Alert,
         ApiKey=ApiKey,
         Order=Order,
+        Snapshot=Snapshot,
+        LeaderboardEntry=LeaderboardEntry,
     )

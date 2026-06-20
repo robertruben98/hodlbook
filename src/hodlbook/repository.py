@@ -282,3 +282,64 @@ class Repository:
         ``next_run`` / ``remaining_runs`` / ``status`` before calling.
         """
         self.models.Order.put(order, condition=F("status") == OrderStatus.OPEN)
+
+    # -- snapshots ----------------------------------------------------------
+    def put_snapshot(
+        self,
+        portfolio_id: str,
+        taken_at: str,
+        total_value: Decimal,
+        cash: Decimal,
+        holdings_value: Decimal,
+        total_unrealized_pnl: Decimal,
+    ) -> Any:
+        snapshot = self.models.Snapshot(
+            portfolio_id=portfolio_id,
+            taken_at=taken_at,
+            total_value=total_value,
+            cash=cash,
+            holdings_value=holdings_value,
+            total_unrealized_pnl=total_unrealized_pnl,
+        )
+        return self.models.Snapshot.put(snapshot)
+
+    def list_snapshots(
+        self, portfolio_id: str, *, cursor: str | None = None, limit: int | None = None
+    ) -> Page[Any]:
+        """Most-recent-first page of value snapshots for a portfolio."""
+        builder = (
+            self.models.Snapshot.query.primary(portfolio_id=portfolio_id)
+            .begins_with("SNAPSHOT#")
+            .descending()
+        )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return builder.page(cursor)
+
+    # -- leaderboard --------------------------------------------------------
+    def upsert_leaderboard_entry(
+        self,
+        user_id: str,
+        portfolio_id: str,
+        total_value: Decimal,
+        rank_key: str,
+        taken_at: str,
+    ) -> Any:
+        """Insert-or-replace a portfolio's leaderboard entry at its primary key.
+
+        The primary key is stable per ``(user_id, portfolio_id)`` so re-snapshotting
+        overwrites the prior entry rather than accumulating; ``rank_key`` (the
+        zero-padded value) rides along on GSI1 for ranked reads.
+        """
+        entry = self.models.LeaderboardEntry(
+            user_id=user_id,
+            portfolio_id=portfolio_id,
+            total_value=total_value,
+            rank_key=rank_key,
+            taken_at=taken_at,
+        )
+        return self.models.LeaderboardEntry.put(entry)
+
+    def top_leaderboard(self, limit: int) -> list[Any]:
+        """Top-``limit`` leaderboard entries by total value, highest first (GSI1)."""
+        return self.models.LeaderboardEntry.query.by_value().descending().limit(limit).all()
