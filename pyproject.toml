@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hodlbook"
-version = "1.0.0"
+version = "2.0.0"
 description = "A crypto paper-trading portfolio ledger API, built on pydynantic single-table DynamoDB."
 readme = "README.md"
 license = { file = "LICENSE" }
