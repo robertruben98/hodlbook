@@ -40,68 +40,68 @@ One table `hodlbook` (PK/SK + `GSI1`, `GSI2`). Entities:
 
 The single-table schema + a typed repository, fully tested on `moto`.
 
-- [ ] `Table` config + the five entities with key templates and GSIs.
-- [ ] A `storage` module (table/client construction, dependency-injectable).
-- [ ] Repository helpers: create/get portfolio, upsert holding, record trade,
+- [x] `Table` config + the five entities with key templates and GSIs.
+- [x] A `storage` module (table/client construction, dependency-injectable).
+- [x] Repository helpers: create/get portfolio, upsert holding, record trade,
       list trades (paginated), put/get price tick, CRUD alerts.
-- [ ] `moto` test fixtures (mocked table) + unit tests for every helper.
+- [x] `moto` test fixtures (mocked table) + unit tests for every helper.
 
 ## M2 — Trading engine
 
 The core: atomic buy/sell with correct accounting.
 
-- [ ] `buy(portfolio, symbol, qty, price)` / `sell(...)` as a single pydynantic
+- [x] `buy(portfolio, symbol, qty, price)` / `sell(...)` as a single pydynantic
       `transaction`: debit/credit `cash`, upsert `Holding` (qty + weighted
       `avg_cost`), append a `Trade` — all-or-nothing.
-- [ ] Optimistic locking on `Portfolio.cash`/`version`; lost races retry or fail
+- [x] Optimistic locking on `Portfolio.cash`/`version`; lost races retry or fail
       cleanly with a domain error.
-- [ ] Validation: insufficient cash (buy), insufficient quantity (sell),
+- [x] Validation: insufficient cash (buy), insufficient quantity (sell),
       non-positive qty/price → typed domain errors.
-- [ ] Realized P&L on sells; holding removed when quantity hits zero.
-- [ ] Tests for happy paths, every validation error, and a concurrent-write race.
+- [x] Realized P&L on sells; holding removed when quantity hits zero.
+- [x] Tests for happy paths, every validation error, and a concurrent-write race.
 
 ## M3 — Price feed & valuation
 
-- [ ] A `PriceProvider` protocol with a deterministic `MockPriceProvider`
+- [x] A `PriceProvider` protocol with a deterministic `MockPriceProvider`
       (seeded) and an optional HTTP provider (e.g. CoinGecko) behind the same
       interface — injectable, so tests never hit the network.
-- [ ] `PriceTick` write-through TTL cache: fetch → cache with `ttl_attr` → serve
+- [x] `PriceTick` write-through TTL cache: fetch → cache with `ttl_attr` → serve
       cached within TTL.
-- [ ] Portfolio valuation: mark holdings to latest prices → total value,
+- [x] Portfolio valuation: mark holdings to latest prices → total value,
       per-asset value, unrealized P&L.
-- [ ] Tests with the mock provider (no network).
+- [x] Tests with the mock provider (no network).
 
 ## M4 — REST API (FastAPI)
 
-- [ ] App factory with the DynamoDB client injected via FastAPI dependencies.
-- [ ] Endpoints: create/get portfolio; place order (buy/sell); list holdings;
+- [x] App factory with the DynamoDB client injected via FastAPI dependencies.
+- [x] Endpoints: create/get portfolio; place order (buy/sell); list holdings;
       portfolio valuation; trade history (cursor-paginated); CRUD watchlist
       alerts; current prices.
-- [ ] Map pydynantic errors → HTTP (e.g. `OptimisticLockError`→409,
+- [x] Map pydynantic errors → HTTP (e.g. `OptimisticLockError`→409,
       `ItemNotFoundError`→404, validation→422) via exception handlers.
-- [ ] `httpx` API tests against the app wired to a `moto` table.
+- [x] `httpx` API tests against the app wired to a `moto` table.
 
 ## M5 — Alerts & watchlists
 
-- [ ] Create price-threshold alerts (`above`/`below`).
-- [ ] GSI2 `by_symbol` evaluator: given fresh prices, find + fire matching alerts
+- [x] Create price-threshold alerts (`above`/`below`).
+- [x] GSI2 `by_symbol` evaluator: given fresh prices, find + fire matching alerts
       (mark triggered, idempotent).
-- [ ] Tests for arming, firing, and not-double-firing alerts.
+- [x] Tests for arming, firing, and not-double-firing alerts.
 
 ## M6 — Quality, DX & demo
 
-- [ ] CI (GitHub Actions): ruff + mypy --strict + pytest/moto matrix (3.10–3.13),
+- [x] CI (GitHub Actions): ruff + mypy --strict + pytest/moto matrix (3.10–3.13),
       coverage gate (≥90%).
-- [ ] A runnable demo script: seed a portfolio, simulate a few days of trading
+- [x] A runnable demo script: seed a portfolio, simulate a few days of trading
       against the mock feed, print the valuation + history.
-- [ ] `pre-commit` + Dependabot; usage docs in the README.
-- [ ] Observability: wire pydynantic's `on_operation` hook to optional logging.
+- [x] `pre-commit` + Dependabot; usage docs in the README.
+- [x] Observability: wire pydynantic's `on_operation` hook to optional logging.
 
 ## M7 — Release 1.0.0
 
-- [ ] Pin `pydynantic>=1.0`, finalize packaging.
-- [ ] CHANGELOG + `Development Status :: 5 - Production/Stable`.
-- [ ] Tag `1.0.0` and publish a GitHub Release.
+- [x] Pin `pydynantic>=1.0`, finalize packaging.
+- [x] CHANGELOG + `Development Status :: 5 - Production/Stable`.
+- [x] Tag `1.0.0` and publish a GitHub Release.
 
 ---
 
