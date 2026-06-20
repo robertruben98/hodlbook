@@ -8,6 +8,13 @@ from .errors import (
     InsufficientHoldings,
     InvalidOrder,
     TradeConflict,
+    UnknownSymbol,
+)
+from .prices import (
+    HttpPriceProvider,
+    MockPriceProvider,
+    PriceCache,
+    PriceProvider,
 )
 from .repository import Repository
 from .storage import (
@@ -20,6 +27,7 @@ from .storage import (
     create_table,
 )
 from .trading import MAX_RETRIES, TradeResult, TradingEngine
+from .valuation import HoldingValuation, Valuation, Valuator
 
 __version__ = "0.1.0"
 
@@ -28,15 +36,23 @@ __all__ = [
     "TABLE_NAME",
     "Direction",
     "HodlbookError",
+    "HoldingValuation",
+    "HttpPriceProvider",
     "InsufficientFunds",
     "InsufficientHoldings",
     "InvalidOrder",
+    "MockPriceProvider",
     "Models",
+    "PriceCache",
+    "PriceProvider",
     "Repository",
     "Side",
     "TradeConflict",
     "TradeResult",
     "TradingEngine",
+    "UnknownSymbol",
+    "Valuation",
+    "Valuator",
     "build_models",
     "build_table",
     "create_table",

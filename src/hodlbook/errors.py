@@ -28,3 +28,7 @@ class InvalidOrder(HodlbookError):
 
 class TradeConflict(HodlbookError):
     """A trade lost the optimistic-lock race repeatedly and gave up retrying."""
+
+
+class UnknownSymbol(HodlbookError):
+    """A price was requested for a symbol the price provider does not know."""
