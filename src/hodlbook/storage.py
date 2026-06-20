@@ -17,6 +17,7 @@ from typing import Any
 
 from pydynantic import (
     Entity,
+    OperationHook,
     Table,
     created_at_attr,
     key,
@@ -42,8 +43,13 @@ class Direction(str, Enum):
     BELOW = "BELOW"
 
 
-def build_table(client: Any) -> Table:
-    """Build the ``hodlbook`` :class:`~pydynantic.Table` bound to ``client``."""
+def build_table(client: Any, *, on_operation: OperationHook | None = None) -> Table:
+    """Build the ``hodlbook`` :class:`~pydynantic.Table` bound to ``client``.
+
+    Pass ``on_operation`` to opt into pydynantic's observability hook -- it
+    fires once per DynamoDB call for tracing and cost attribution. The default
+    of ``None`` leaves behavior unchanged.
+    """
     return Table(
         name=TABLE_NAME,
         pk="PK",
@@ -53,6 +59,7 @@ def build_table(client: Any) -> Table:
             "GSI2": {"pk": "GSI2PK", "sk": "GSI2SK"},
         },
         client=client,
+        on_operation=on_operation,
     )
 
 
