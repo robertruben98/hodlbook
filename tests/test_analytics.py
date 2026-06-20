@@ -216,32 +216,32 @@ def test_api_snapshot_series_and_returns_flow(
 ) -> None:
     client, clock, provider = analytics_app
     client.post(
-        "/portfolios",
+        "/v1/portfolios",
         json={"user_id": "u1", "portfolio_id": "p1", "cash": "1000000"},
         headers=auth_headers,
     )
     client.post(
-        "/portfolios/u1/p1/orders",
+        "/v1/portfolios/u1/p1/orders",
         json={"symbol": "bitcoin", "side": Side.BUY.value, "quantity": "1", "price": "100"},
         headers=auth_headers,
     )
 
-    r1 = client.post("/portfolios/u1/p1/snapshots", headers=auth_headers)
+    r1 = client.post("/v1/portfolios/u1/p1/snapshots", headers=auth_headers)
     assert r1.status_code == 201
     assert Decimal(r1.json()["total_value"]) == Decimal("1000000")
 
     clock.advance(60)
     provider.drift_step = 10  # bitcoin 100 -> 110
-    r2 = client.post("/portfolios/u1/p1/snapshots", headers=auth_headers)
+    r2 = client.post("/v1/portfolios/u1/p1/snapshots", headers=auth_headers)
     assert r2.status_code == 201
     assert Decimal(r2.json()["total_value"]) == Decimal("1000010")
 
-    series = client.get("/portfolios/u1/p1/snapshots", headers=auth_headers)
+    series = client.get("/v1/portfolios/u1/p1/snapshots", headers=auth_headers)
     items = series.json()["items"]
     assert len(items) == 2
     assert items[0]["taken_at"] > items[1]["taken_at"]  # recent-first
 
-    returns = client.get("/portfolios/u1/p1/returns", headers=auth_headers)
+    returns = client.get("/v1/portfolios/u1/p1/returns", headers=auth_headers)
     body = returns.json()
     assert len(body["series"]["items"]) == 2
     assert (
@@ -255,7 +255,7 @@ def test_api_snapshot_unknown_portfolio_404(
     auth_headers: dict[str, str],
 ) -> None:
     client, _, _ = analytics_app
-    resp = client.post("/portfolios/u1/ghost/snapshots", headers=auth_headers)
+    resp = client.post("/v1/portfolios/u1/ghost/snapshots", headers=auth_headers)
     assert resp.status_code == 404
 
 
@@ -265,18 +265,18 @@ def test_api_snapshots_wrong_tenant_403(
 ) -> None:
     client, _, _ = analytics_app
     # auth_headers authenticates u1; hitting u2's resources -> 403.
-    assert client.post("/portfolios/u2/p1/snapshots", headers=auth_headers).status_code == 403
-    assert client.get("/portfolios/u2/p1/snapshots", headers=auth_headers).status_code == 403
-    assert client.get("/portfolios/u2/p1/returns", headers=auth_headers).status_code == 403
+    assert client.post("/v1/portfolios/u2/p1/snapshots", headers=auth_headers).status_code == 403
+    assert client.get("/v1/portfolios/u2/p1/snapshots", headers=auth_headers).status_code == 403
+    assert client.get("/v1/portfolios/u2/p1/returns", headers=auth_headers).status_code == 403
 
 
 def test_api_snapshots_no_token_401(
     analytics_app: tuple[TestClient, _Clock, MockPriceProvider],
 ) -> None:
     client, _, _ = analytics_app
-    assert client.post("/portfolios/u1/p1/snapshots").status_code == 401
-    assert client.get("/portfolios/u1/p1/snapshots").status_code == 401
-    assert client.get("/portfolios/u1/p1/returns").status_code == 401
+    assert client.post("/v1/portfolios/u1/p1/snapshots").status_code == 401
+    assert client.get("/v1/portfolios/u1/p1/snapshots").status_code == 401
+    assert client.get("/v1/portfolios/u1/p1/returns").status_code == 401
 
 
 def test_api_leaderboard_any_valid_token_and_shape(
@@ -295,7 +295,7 @@ def test_api_leaderboard_any_valid_token_and_shape(
     analytics.take_snapshot("uc", "pc")
 
     # A valid token for u1 (who owns none of these) can still read -- cross-tenant.
-    resp = client.get("/leaderboard", headers=auth_headers)
+    resp = client.get("/v1/leaderboard", headers=auth_headers)
     assert resp.status_code == 200
     entries = resp.json()["entries"]
     assert [e["portfolio_id"] for e in entries] == ["pb", "pc", "pa"]
@@ -308,4 +308,4 @@ def test_api_leaderboard_no_token_401(
     analytics_app: tuple[TestClient, _Clock, MockPriceProvider],
 ) -> None:
     client, _, _ = analytics_app
-    assert client.get("/leaderboard").status_code == 401
+    assert client.get("/v1/leaderboard").status_code == 401
