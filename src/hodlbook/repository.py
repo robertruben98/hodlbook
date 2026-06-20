@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydynantic import Page, Table, attr_not_exists
+from pydynantic import F, Page, Table, attr_not_exists
 
 from .storage import Direction, Models, Side, build_models
 
@@ -141,9 +141,15 @@ class Repository:
         return self.models.Alert.get(portfolio_id=portfolio_id, alert_id=alert_id)
 
     def mark_alert_triggered(self, portfolio_id: str, alert_id: str) -> None:
+        """Mark an alert triggered, conditionally so a double-fire is a no-op.
+
+        Guarded with ``F("triggered") == False`` so a re-fire / lost race raises
+        :class:`pydynantic.ConditionCheckFailedError` rather than silently
+        re-stamping an already-triggered alert.
+        """
         alert: Any = self.models.Alert.get_or_raise(portfolio_id=portfolio_id, alert_id=alert_id)
         alert.triggered = True
-        self.models.Alert.put(alert)
+        self.models.Alert.put(alert, condition=F("triggered") == False)  # noqa: E712
 
     def delete_alert(self, portfolio_id: str, alert_id: str) -> None:
         """Delete an alert by its primary key (idempotent)."""
