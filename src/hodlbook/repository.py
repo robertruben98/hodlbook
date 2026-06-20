@@ -40,6 +40,14 @@ class Repository:
     def get_holding(self, portfolio_id: str, symbol: str) -> Any | None:
         return self.models.Holding.get(portfolio_id=portfolio_id, symbol=symbol)
 
+    def get_holdings(self, portfolio_id: str) -> list[Any]:
+        """All holdings for a portfolio (mirrors :meth:`list_alerts`)."""
+        return (
+            self.models.Holding.query.primary(portfolio_id=portfolio_id)
+            .begins_with("HOLDING#")
+            .all()
+        )
+
     def upsert_holding(
         self, portfolio_id: str, symbol: str, quantity: Decimal, avg_cost: Decimal
     ) -> Any:
