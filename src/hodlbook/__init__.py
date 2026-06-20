@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from .alerts import AlertEvaluator, FiredAlert
+from .analytics import Analytics
 from .api import create_app
 from .errors import (
+    AuthenticationError,
+    AuthorizationError,
     HodlbookError,
     InsufficientFunds,
     InsufficientHoldings,
     InvalidOrder,
+    OrderNotFound,
+    RateLimitExceeded,
     TradeConflict,
     UnknownSymbol,
 )
-from .observability import collecting_hook, logging_hook
+from .observability import collecting_hook, logging_hook, setup_logging
+from .orders import ExecutionResult, FilledOrder, OrderExecutor, SkippedOrder
 from .prices import (
     HttpPriceProvider,
     MockPriceProvider,
@@ -20,10 +26,13 @@ from .prices import (
     PriceProvider,
 )
 from .repository import Repository
+from .settings import Settings, get_settings
 from .storage import (
     TABLE_NAME,
     Direction,
     Models,
+    OrderStatus,
+    OrderType,
     Side,
     build_models,
     build_table,
@@ -32,36 +41,57 @@ from .storage import (
 from .trading import MAX_RETRIES, TradeResult, TradingEngine
 from .valuation import HoldingValuation, Valuation, Valuator
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 __all__ = [
     "MAX_RETRIES",
     "TABLE_NAME",
+    # Services
+    "Repository",
+    "TradingEngine",
+    "OrderExecutor",
     "AlertEvaluator",
+    "Analytics",
+    "Valuator",
+    "create_app",
+    # Storage / models
+    "build_table",
+    "build_models",
+    "create_table",
+    "Models",
+    "Side",
     "Direction",
-    "FiredAlert",
-    "collecting_hook",
-    "logging_hook",
-    "HodlbookError",
-    "HoldingValuation",
+    "OrderType",
+    "OrderStatus",
+    # Prices
+    "PriceProvider",
+    "MockPriceProvider",
     "HttpPriceProvider",
+    "PriceCache",
+    # Results / values
+    "TradeResult",
+    "FilledOrder",
+    "ExecutionResult",
+    "SkippedOrder",
+    "FiredAlert",
+    "Valuation",
+    "HoldingValuation",
+    # Settings
+    "Settings",
+    "get_settings",
+    # Observability
+    "logging_hook",
+    "collecting_hook",
+    "setup_logging",
+    # Errors
+    "HodlbookError",
     "InsufficientFunds",
     "InsufficientHoldings",
     "InvalidOrder",
-    "MockPriceProvider",
-    "Models",
-    "PriceCache",
-    "PriceProvider",
-    "Repository",
-    "Side",
     "TradeConflict",
-    "TradeResult",
-    "TradingEngine",
     "UnknownSymbol",
-    "Valuation",
-    "Valuator",
-    "build_models",
-    "create_app",
-    "build_table",
-    "create_table",
+    "OrderNotFound",
+    "AuthenticationError",
+    "AuthorizationError",
+    "RateLimitExceeded",
 ]

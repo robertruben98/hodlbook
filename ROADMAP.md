@@ -140,67 +140,67 @@ the developer team, verified by the tester, and merged to `main` only when green
 
 ## M8 — Configuration & settings
 
-- [ ] Centralized settings via `pydantic-settings` (env-driven): table name,
+- [x] Centralized settings via `pydantic-settings` (env-driven): table name,
       AWS region/endpoint, price-provider choice, TTL, log level, default
       starting cash. No hardcoded config in modules.
-- [ ] `create_app()` reads settings; a documented `.env.example`.
-- [ ] Tests for settings parsing + overrides.
+- [x] `create_app()` reads settings; a documented `.env.example`.
+- [x] Tests for settings parsing + overrides.
 
 ## M9 — Authentication & multi-tenancy
 
-- [ ] API-key (or bearer-token) auth as a FastAPI dependency; unauthenticated
+- [x] API-key (or bearer-token) auth as a FastAPI dependency; unauthenticated
       requests → 401.
-- [ ] Per-principal authorization: a caller may only access portfolios under
+- [x] Per-principal authorization: a caller may only access portfolios under
       their own `user_id` (mismatch → 403). Remove the trust in path `user_id`.
-- [ ] An `ApiKey` entity (hashed) in the single table, with issue/revoke helpers.
-- [ ] Tests: 401 (no/invalid key), 403 (cross-tenant), happy path.
+- [x] An `ApiKey` entity (hashed) in the single table, with issue/revoke helpers.
+- [x] Tests: 401 (no/invalid key), 403 (cross-tenant), happy path.
 
 ## M10 — Advanced order types
 
-- [ ] Limit orders and recurring/DCA orders persisted as an `Order` entity;
+- [x] Limit orders and recurring/DCA orders persisted as an `Order` entity;
       an execution pass that fills eligible orders against the latest price tick
       (atomic via pydynantic `transaction`, balance-safe).
-- [ ] Order lifecycle (open → filled/cancelled), list/cancel endpoints.
-- [ ] Tests: limit fill when price crosses, DCA schedule, cancel, insufficient
+- [x] Order lifecycle (open → filled/cancelled), list/cancel endpoints.
+- [x] Tests: limit fill when price crosses, DCA schedule, cancel, insufficient
       funds at fill time.
 
 ## M11 — Analytics & leaderboards
 
-- [ ] Periodic portfolio-value snapshots (entity) → performance over time and a
+- [x] Periodic portfolio-value snapshots (entity) → performance over time and a
       returns series endpoint.
-- [ ] A leaderboard ranking portfolios by total value / return via a GSI.
-- [ ] Tests for snapshotting, returns math, and ranking.
+- [x] A leaderboard ranking portfolios by total value / return via a GSI.
+- [x] Tests for snapshotting, returns math, and ranking.
 
 ## M12 — Observability & ops endpoints
 
-- [ ] Structured JSON logging + request IDs (middleware); the pydynantic
+- [x] Structured JSON logging + request IDs (middleware); the pydynantic
       `on_operation` hook wired to metrics.
-- [ ] Prometheus `/metrics` (request latency/count, DynamoDB op latency/count)
+- [x] Prometheus `/metrics` (request latency/count, DynamoDB op latency/count)
       and `/healthz` / `/readyz` endpoints.
-- [ ] Tests asserting metrics increment and health endpoints respond.
+- [x] Tests asserting metrics increment and health endpoints respond.
 
 ## M13 — Packaging, deployment & CLI
 
-- [ ] `Dockerfile` (slim, non-root) + `docker-compose.yml` (app + DynamoDB Local)
+- [x] `Dockerfile` (slim, non-root) + `docker-compose.yml` (app + DynamoDB Local)
       that boots the full stack locally.
-- [ ] A `hodlbook` CLI (console-script) for admin tasks: create-table, issue
+- [x] A `hodlbook` CLI (console-script) for admin tasks: create-table, issue
       API key, seed a demo portfolio, run the price-refresh pass.
-- [ ] Deployment docs (env vars, DynamoDB table provisioning).
+- [x] Deployment docs (env vars, DynamoDB table provisioning).
 
 ## M14 — Docs site & API/CI hardening
 
-- [ ] MkDocs (Material) docs site: concepts, API guide, mkdocstrings reference,
+- [x] MkDocs (Material) docs site: concepts, API guide, mkdocstrings reference,
       deployment guide; `mkdocs build --strict` in CI.
-- [ ] API versioning (`/v1` prefix), richer OpenAPI examples, and basic rate
+- [x] API versioning (`/v1` prefix), richer OpenAPI examples, and basic rate
       limiting.
-- [ ] Security/quality in CI: `pip-audit` + `bandit`; raise the coverage gate to
+- [x] Security/quality in CI: `pip-audit` + `bandit`; raise the coverage gate to
       ≥95%.
 
 ## M15 — Release 2.0.0
 
-- [ ] CHANGELOG `[2.0.0]`, version bump, keep `Development Status :: 5`.
-- [ ] Migration notes (1.x → 2.0 breaking changes, e.g. auth now required).
-- [ ] Tag `2.0.0` and publish a GitHub Release.
+- [x] CHANGELOG `[2.0.0]`, version bump, keep `Development Status :: 5`.
+- [x] Migration notes (1.x → 2.0 breaking changes, e.g. auth now required).
+- [x] Tag `2.0.0` and publish a GitHub Release.
 
 ## Definition of done for 2.0
 
