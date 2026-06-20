@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .api import create_app
 from .errors import (
     HodlbookError,
     InsufficientFunds,
@@ -54,6 +55,7 @@ __all__ = [
     "Valuation",
     "Valuator",
     "build_models",
+    "create_app",
     "build_table",
     "create_table",
 ]

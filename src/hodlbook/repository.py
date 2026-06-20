@@ -81,14 +81,18 @@ class Repository:
         )
         return self.models.Trade.put(trade)
 
-    def list_trades(self, portfolio_id: str, *, cursor: str | None = None) -> Page[Any]:
+    def list_trades(
+        self, portfolio_id: str, *, cursor: str | None = None, limit: int | None = None
+    ) -> Page[Any]:
         """Most-recent-first page of trades for a portfolio."""
-        return (
+        builder = (
             self.models.Trade.query.primary(portfolio_id=portfolio_id)
             .begins_with("TRADE#")
             .descending()
-            .page(cursor)
         )
+        if limit is not None:
+            builder = builder.limit(limit)
+        return builder.page(cursor)
 
     def list_trades_by_symbol(self, symbol: str, *, cursor: str | None = None) -> Page[Any]:
         """Most-recent-first page of trades for a symbol across portfolios (GSI1)."""
@@ -140,3 +144,7 @@ class Repository:
         alert: Any = self.models.Alert.get_or_raise(portfolio_id=portfolio_id, alert_id=alert_id)
         alert.triggered = True
         self.models.Alert.put(alert)
+
+    def delete_alert(self, portfolio_id: str, alert_id: str) -> None:
+        """Delete an alert by its primary key (idempotent)."""
+        self.models.Alert.delete(portfolio_id=portfolio_id, alert_id=alert_id)
