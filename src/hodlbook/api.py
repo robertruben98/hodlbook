@@ -45,6 +45,7 @@ from .errors import (
 )
 from .prices import MockPriceProvider, PriceCache, PriceProvider
 from .repository import Repository
+from .settings import Settings, get_settings
 from .storage import Direction, Side, build_table
 from .trading import TradingEngine
 from .valuation import Valuator
@@ -263,6 +264,7 @@ def create_app(
     provider: PriceProvider | None = None,
     clock: Callable[[], datetime] | None = None,
     on_operation: OperationHook | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     """Build the hodlbook FastAPI app from an injected boto3 ``client``.
 
@@ -272,16 +274,27 @@ def create_app(
     Pass ``on_operation`` (e.g. ``observability.logging_hook()``) to enable
     optional tracing/cost-attribution logging around each DynamoDB call. The
     default of ``None`` leaves behavior unchanged.
+
+    Pass ``settings`` to override the env-driven configuration (defaults to
+    :func:`~hodlbook.settings.get_settings`); it drives values like the price
+    cache TTL while leaving every other parameter backward-compatible.
     """
+    the_settings = settings or get_settings()
     the_clock = clock or _default_clock
     table = build_table(client, on_operation=on_operation)
     repo = Repository(table)
     the_provider = provider or MockPriceProvider({})
-    cache = PriceCache(repo, the_provider, clock=the_clock)
+    cache = PriceCache(
+        repo,
+        the_provider,
+        clock=the_clock,
+        ttl_seconds=the_settings.price_ttl_seconds,
+    )
     engine = TradingEngine(repo, clock=the_clock)
     valuator = Valuator(repo, cache)
 
     app = FastAPI(title="hodlbook")
+    app.state.settings = the_settings
     app.state.repo = repo
     app.state.engine = engine
     app.state.cache = cache
