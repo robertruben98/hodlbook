@@ -34,6 +34,10 @@ class UnknownSymbol(HodlbookError):
     """A price was requested for a symbol the price provider does not know."""
 
 
+class OrderNotFound(HodlbookError):
+    """An advanced order was requested by an id that does not exist."""
+
+
 class AuthenticationError(HodlbookError):
     """The request carried no valid API key (missing, unknown, or revoked)."""
 

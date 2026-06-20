@@ -16,9 +16,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from pydynantic import F, Page, Table, attr_not_exists
+from pydynantic import ConditionCheckFailedError, F, Page, Table, attr_not_exists
 
-from .storage import Direction, Models, Side, build_models
+from .storage import Direction, Models, OrderStatus, OrderType, Side, build_models
 
 
 def _hash_token(raw: str) -> str:
@@ -197,3 +197,88 @@ class Repository:
 
     def list_api_keys(self, user_id: str) -> list[Any]:
         return self.models.ApiKey.query.by_user(user_id=user_id).begins_with("APIKEY#").all()
+
+    # -- orders -------------------------------------------------------------
+    def create_order(
+        self,
+        portfolio_id: str,
+        order_id: str,
+        user_id: str,
+        symbol: str,
+        side: Side,
+        order_type: OrderType,
+        quantity: Decimal,
+        *,
+        limit_price: Decimal | None = None,
+        interval_seconds: int | None = None,
+        next_run: datetime | None = None,
+        remaining_runs: int | None = None,
+    ) -> Any:
+        """Create an OPEN order, failing if one already exists at that key."""
+        order = self.models.Order(
+            portfolio_id=portfolio_id,
+            order_id=order_id,
+            user_id=user_id,
+            symbol=symbol,
+            side=side,
+            order_type=order_type,
+            quantity=quantity,
+            limit_price=limit_price,
+            status=OrderStatus.OPEN,
+            interval_seconds=interval_seconds,
+            next_run=next_run,
+            remaining_runs=remaining_runs,
+        )
+        return self.models.Order.put(order, condition=attr_not_exists("PK"))
+
+    def get_order(self, portfolio_id: str, order_id: str) -> Any | None:
+        return self.models.Order.get(portfolio_id=portfolio_id, order_id=order_id)
+
+    def list_orders(self, portfolio_id: str) -> list[Any]:
+        return (
+            self.models.Order.query.primary(portfolio_id=portfolio_id).begins_with("ORDER#").all()
+        )
+
+    def list_open_orders_by_symbol(self, symbol: str) -> list[Any]:
+        """All OPEN orders for ``symbol`` across portfolios (GSI2)."""
+        return self.models.Order.query.by_status_symbol(
+            status=OrderStatus.OPEN.value, symbol=symbol
+        ).all()
+
+    def cancel_order(self, portfolio_id: str, order_id: str) -> None:
+        """Cancel an OPEN order, guarded so a cancel/fill race is safe.
+
+        Guarded with ``F("status") == OrderStatus.OPEN``: if the order has
+        already been filled or cancelled, the conditional put raises
+        :class:`pydynantic.ConditionCheckFailedError`, which we swallow and
+        treat as already-resolved (the cancel is a no-op).
+        """
+        order: Any = self.models.Order.get(portfolio_id=portfolio_id, order_id=order_id)
+        if order is None:
+            return
+        order.status = OrderStatus.CANCELLED
+        try:
+            self.models.Order.put(order, condition=F("status") == OrderStatus.OPEN)
+        except ConditionCheckFailedError:
+            # Lost race: the order was filled/cancelled concurrently. No-op.
+            return
+
+    def mark_order_filled(self, order: Any) -> None:
+        """Mark an order FILLED, guarded on ``status == OPEN`` AND ``version``.
+
+        The version lock is applied automatically by ``put`` from the loaded
+        order's version; we add ``F("status") == OPEN`` so a concurrent
+        fill/cancel makes this a safe no-op. Raises
+        :class:`pydynantic.ConditionCheckFailedError` on a lost race.
+        """
+        order.status = OrderStatus.FILLED
+        self.models.Order.put(order, condition=F("status") == OrderStatus.OPEN)
+
+    def advance_dca(self, order: Any) -> None:
+        """Persist a DCA order's advanced schedule, guarded on ``status == OPEN``.
+
+        Mirrors :meth:`mark_order_filled` -- the optimistic version lock plus the
+        ``status == OPEN`` guard make a lost race a no-op. The caller mutates
+        ``next_run`` / ``remaining_runs`` / ``status`` before calling.
+        """
+        self.models.Order.put(order, condition=F("status") == OrderStatus.OPEN)

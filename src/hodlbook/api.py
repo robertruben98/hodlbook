@@ -42,13 +42,14 @@ from .errors import (
     InsufficientFunds,
     InsufficientHoldings,
     InvalidOrder,
+    OrderNotFound,
     TradeConflict,
     UnknownSymbol,
 )
 from .prices import MockPriceProvider, PriceCache, PriceProvider
 from .repository import Repository, _hash_token
 from .settings import Settings, get_settings
-from .storage import Direction, Side, build_table
+from .storage import Direction, OrderStatus, OrderType, Side, build_table
 from .trading import TradingEngine
 from .valuation import Valuator
 
@@ -139,6 +140,35 @@ class AlertResponse(BaseModel):
     triggered: bool
 
 
+class LimitOrderCreateRequest(BaseModel):
+    symbol: str
+    side: Side
+    quantity: Decimal
+    limit_price: Decimal
+
+
+class DcaOrderCreateRequest(BaseModel):
+    symbol: str
+    side: Side
+    quantity: Decimal
+    interval_seconds: int
+    total_runs: int
+
+
+class OrderEntityResponse(BaseModel):
+    order_id: str
+    portfolio_id: str
+    symbol: str
+    side: Side
+    order_type: OrderType
+    quantity: Decimal
+    limit_price: Decimal | None
+    status: OrderStatus
+    interval_seconds: int | None
+    next_run: datetime | None
+    remaining_runs: int | None
+
+
 class PriceResponse(BaseModel):
     symbol: str
     price: Decimal
@@ -186,6 +216,22 @@ def _alert_response(alert: Any) -> AlertResponse:
         direction=alert.direction,
         threshold=alert.threshold,
         triggered=alert.triggered,
+    )
+
+
+def _order_response(order: Any) -> OrderEntityResponse:
+    return OrderEntityResponse(
+        order_id=order.order_id,
+        portfolio_id=order.portfolio_id,
+        symbol=order.symbol,
+        side=order.side,
+        order_type=order.order_type,
+        quantity=order.quantity,
+        limit_price=order.limit_price,
+        status=order.status,
+        interval_seconds=order.interval_seconds,
+        next_run=order.next_run,
+        remaining_runs=order.remaining_runs,
     )
 
 
@@ -264,6 +310,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
     leaf: list[tuple[type[Exception], int]] = [
         (ItemNotFoundError, status.HTTP_404_NOT_FOUND),
         (UnknownSymbol, status.HTTP_404_NOT_FOUND),
+        (OrderNotFound, status.HTTP_404_NOT_FOUND),
         (OptimisticLockError, status.HTTP_409_CONFLICT),
         (TradeConflict, status.HTTP_409_CONFLICT),
         (InsufficientFunds, status.HTTP_409_CONFLICT),
@@ -489,6 +536,92 @@ def create_app(
     )
     def delete_alert(portfolio_id: str, alert_id: str, repo: RepoDep) -> Response:
         repo.delete_alert(portfolio_id, alert_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post(
+        "/portfolios/{user_id}/{portfolio_id}/orders/limit",
+        response_model=OrderEntityResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_tenant)],
+    )
+    def create_limit_order(
+        user_id: str,
+        portfolio_id: str,
+        body: LimitOrderCreateRequest,
+        repo: RepoDep,
+    ) -> OrderEntityResponse:
+        if repo.get_portfolio(user_id, portfolio_id) is None:
+            raise ItemNotFoundError(f"portfolio {user_id}/{portfolio_id} not found")
+        order = repo.create_order(
+            portfolio_id,
+            uuid4().hex,
+            user_id,
+            body.symbol,
+            body.side,
+            OrderType.LIMIT,
+            body.quantity,
+            limit_price=body.limit_price,
+        )
+        return _order_response(order)
+
+    @app.post(
+        "/portfolios/{user_id}/{portfolio_id}/orders/dca",
+        response_model=OrderEntityResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_tenant)],
+    )
+    def create_dca_order(
+        user_id: str,
+        portfolio_id: str,
+        body: DcaOrderCreateRequest,
+        repo: RepoDep,
+    ) -> OrderEntityResponse:
+        if repo.get_portfolio(user_id, portfolio_id) is None:
+            raise ItemNotFoundError(f"portfolio {user_id}/{portfolio_id} not found")
+        # Persisted OPEN with no cash movement: the first tick is due immediately
+        # (next_run = now) and the executor drives subsequent fills.
+        order = repo.create_order(
+            portfolio_id,
+            uuid4().hex,
+            user_id,
+            body.symbol,
+            body.side,
+            OrderType.DCA,
+            body.quantity,
+            interval_seconds=body.interval_seconds,
+            next_run=the_clock(),
+            remaining_runs=body.total_runs,
+        )
+        return _order_response(order)
+
+    @app.get(
+        "/portfolios/{user_id}/{portfolio_id}/orders",
+        response_model=list[OrderEntityResponse],
+        dependencies=[Depends(require_tenant)],
+    )
+    def list_orders(portfolio_id: str, repo: RepoDep) -> list[OrderEntityResponse]:
+        return [_order_response(o) for o in repo.list_orders(portfolio_id)]
+
+    @app.get(
+        "/portfolios/{user_id}/{portfolio_id}/orders/{order_id}",
+        response_model=OrderEntityResponse,
+        dependencies=[Depends(require_tenant)],
+    )
+    def get_order(portfolio_id: str, order_id: str, repo: RepoDep) -> OrderEntityResponse:
+        order = repo.get_order(portfolio_id, order_id)
+        if order is None:
+            raise OrderNotFound(f"order {order_id} not found")
+        return _order_response(order)
+
+    @app.delete(
+        "/portfolios/{user_id}/{portfolio_id}/orders/{order_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_tenant)],
+    )
+    def cancel_order(portfolio_id: str, order_id: str, repo: RepoDep) -> Response:
+        if repo.get_order(portfolio_id, order_id) is None:
+            raise OrderNotFound(f"order {order_id} not found")
+        repo.cancel_order(portfolio_id, order_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get(

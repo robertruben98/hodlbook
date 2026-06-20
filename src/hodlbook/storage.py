@@ -43,6 +43,22 @@ class Direction(str, Enum):
     BELOW = "BELOW"
 
 
+class OrderType(str, Enum):
+    """The kind of an advanced order."""
+
+    MARKET = "MARKET"
+    LIMIT = "LIMIT"
+    DCA = "DCA"
+
+
+class OrderStatus(str, Enum):
+    """Lifecycle state of an advanced order."""
+
+    OPEN = "OPEN"
+    FILLED = "FILLED"
+    CANCELLED = "CANCELLED"
+
+
 def build_table(client: Any, *, on_operation: OperationHook | None = None) -> Table:
     """Build the ``hodlbook`` :class:`~pydynantic.Table` bound to ``client``.
 
@@ -115,6 +131,7 @@ class Models:
     PriceTick: type[Entity]
     Alert: type[Entity]
     ApiKey: type[Entity]
+    Order: type[Entity]
 
 
 def build_models(table: Table) -> Models:
@@ -190,6 +207,38 @@ def build_models(table: Table) -> Models:
             primary = key(pk="APIKEY#{key_hash}", sk="APIKEY")
             by_user = key(index="GSI1", pk="USER#{user_id}", sk="APIKEY#{key_id}")
 
+    class Order(Entity, table=table, name="order"):
+        portfolio_id: str
+        order_id: str
+        # ``user_id`` is carried so the executor can drive the trading engine
+        # (which keys the portfolio by ``USER#{user_id}``) without a reverse
+        # portfolio_id -> user_id lookup. It is set from the authenticated path.
+        user_id: str
+        symbol: str
+        side: Side
+        order_type: OrderType
+        quantity: Decimal
+        limit_price: Decimal | None = None
+        status: OrderStatus = OrderStatus.OPEN
+        interval_seconds: int | None = None
+        next_run: datetime | None = None
+        remaining_runs: int | None = None
+        version: int = version_attr()
+        created_at: datetime | None = created_at_attr()
+        updated_at: datetime | None = updated_at_attr()
+
+        class Meta:
+            primary = key(pk="PORTFOLIO#{portfolio_id}", sk="ORDER#{order_id}")
+            # Status is baked into the GSI2 partition so open orders self-maintain:
+            # changing ``status`` rewrites the partition, so the OPEN partition only
+            # ever holds open orders. "open orders for SYMBOL" is a single query on
+            # ``by_status_symbol(status="OPEN", symbol=...)``.
+            by_status_symbol = key(
+                index="GSI2",
+                pk="ORDER#{status}#{symbol}",
+                sk="ORDER#{order_id}",
+            )
+
     return Models(
         Portfolio=Portfolio,
         Holding=Holding,
@@ -197,4 +246,5 @@ def build_models(table: Table) -> Models:
         PriceTick=PriceTick,
         Alert=Alert,
         ApiKey=ApiKey,
+        Order=Order,
     )
