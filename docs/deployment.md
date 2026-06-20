@@ -1,83 +1,71 @@
 # Deployment
 
-hodlbook runs against any DynamoDB endpoint via an injected boto3 client — there
-is no hidden global state and the app never constructs boto3 itself. The same
-[`create_app`](api-reference.md) factory serves DynamoDB Local, AWS, and `moto`
-tests; only the injected client changes.
+hodlbook ships as a slim, non-root container plus a `hodlbook` admin CLI. The
+API never constructs a boto3 client itself: the client is resolved from the
+environment, so the same image runs against DynamoDB Local or AWS.
 
-## Install
+## Environment variables
 
-```bash
-pip install -e .
+| Variable                     | Purpose                                              | Example                  |
+| ---------------------------- | ---------------------------------------------------- | ------------------------ |
+| `HODLBOOK_DYNAMODB_ENDPOINT` | DynamoDB endpoint URL. Omit to target real AWS.      | `http://dynamodb:8000`   |
+| `AWS_REGION`                 | AWS region (falls back to `AWS_DEFAULT_REGION`).     | `us-east-1`              |
+| `AWS_DEFAULT_REGION`         | Region fallback when `AWS_REGION` is unset.          | `us-east-1`              |
+| `AWS_ACCESS_KEY_ID`          | AWS credentials. Use dummy values for DynamoDB Local.| `local`                  |
+| `AWS_SECRET_ACCESS_KEY`      | AWS credentials. Use dummy values for DynamoDB Local.| `local`                  |
+
+When no region is provided the CLI defaults to `us-east-1`.
+
+## Local stack: `docker compose up`
+
+`docker-compose.yml` defines two services:
+
+* `dynamodb` — `amazon/dynamodb-local` on port `8000`.
+* `api` — built from `Dockerfile`, served by `uvicorn --factory
+  hodlbook.cli:app_factory`, published on host port `8080`, pointed at the
+  `dynamodb` service via `HODLBOOK_DYNAMODB_ENDPOINT` with dummy local AWS creds.
+
+```sh
+docker compose up --build
 ```
 
-For the HTTP server you will also want an ASGI server such as `uvicorn`.
+The API comes up at <http://localhost:8080>. DynamoDB Local runs `-inMemory`,
+so its data is discarded when the container stops.
 
-## Provision the table
+## Table provisioning
 
-The table is provisioned once via [`create_table`](api-reference.md). In
-production prefer infrastructure-as-code (CDK / Terraform / CloudFormation) that
-creates the same single table with its `GSI1` and `GSI2` indexes; use
-`create_table` for local development and tests.
+The image does not auto-create the table. Provision it once after the stack is
+up by running the CLI inside the `api` container (it inherits the same env):
 
-```python
-import boto3
-from hodlbook import create_table
-
-create_table(boto3.client("dynamodb"))   # one-time
+```sh
+docker compose exec api hodlbook create-table
 ```
 
-The table name is exported as [`TABLE_NAME`](api-reference.md).
+`create-table` is idempotent — a second run reports the table already exists.
 
-## Run the API
+Optionally seed a demo portfolio with a couple of trades:
 
-[`create_app`](api-reference.md) returns an ASGI application. Inject the client
-configured for your target environment:
-
-```python
-# app.py
-import boto3
-from hodlbook import create_app
-
-app = create_app(boto3.client("dynamodb"))
+```sh
+docker compose exec api hodlbook seed-demo --user-id demo --portfolio-id main --cash 100000
 ```
 
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8000
+## CLI reference
+
+The `hodlbook` console-script is installed with the package. Every subcommand
+accepts `--region` and `--endpoint-url` (both fall back to the environment):
+
+| Command          | Description                                                        |
+| ---------------- | ------------------------------------------------------------------ |
+| `create-table`   | Provision the single `hodlbook` DynamoDB table (idempotent).       |
+| `seed-demo`      | Create a demo portfolio plus two trades (`bitcoin`, `ethereum`).   |
+| `issue-api-key`  | Placeholder — the API-key admin flow lands with M9 (auth).         |
+| `refresh-prices` | Placeholder — prices are refreshed lazily on read for now.         |
+
+## Deploying to AWS
+
+Run the same image with real AWS credentials and no `HODLBOOK_DYNAMODB_ENDPOINT`
+(so boto3 targets the real DynamoDB service), then provision the table once:
+
+```sh
+AWS_REGION=us-east-1 hodlbook create-table
 ```
-
-## DynamoDB Local
-
-For local development, point the injected client at a DynamoDB Local container:
-
-```python
-import boto3
-client = boto3.client(
-    "dynamodb",
-    endpoint_url="http://localhost:8000",
-    region_name="us-east-1",
-    aws_access_key_id="local",
-    aws_secret_access_key="local",
-)
-```
-
-## AWS
-
-In AWS, construct the client with your normal credential chain and region — the
-rest of the wiring is identical:
-
-```python
-import boto3
-client = boto3.client("dynamodb", region_name="us-east-1")
-```
-
-Grant the role running the app least-privilege access to the single hodlbook
-table and its indexes (read/write item operations plus `TransactWriteItems` for
-atomic trades, and `Query` on the GSIs).
-
-## Observability
-
-Wire pydynantic's operation hook to trace DynamoDB calls. Pass
-[`logging_hook`](api-reference.md) (or your own) when building the table so
-each operation is logged with latency and consumed-capacity context — without
-hodlbook forcing a logging dependency on callers.
