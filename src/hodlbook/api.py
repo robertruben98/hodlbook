@@ -35,6 +35,7 @@ from pydynantic import (
     PydynanticError,
 )
 
+from .analytics import Analytics
 from .errors import (
     AuthenticationError,
     AuthorizationError,
@@ -174,6 +175,35 @@ class PriceResponse(BaseModel):
     price: Decimal
 
 
+class SnapshotResponse(BaseModel):
+    portfolio_id: str
+    taken_at: str
+    total_value: Decimal
+    cash: Decimal
+    holdings_value: Decimal
+    total_unrealized_pnl: Decimal
+
+
+class SnapshotPageResponse(BaseModel):
+    items: list[SnapshotResponse]
+    cursor: str | None
+
+
+class ReturnsResponse(BaseModel):
+    series: SnapshotPageResponse
+    return_pct: Decimal
+
+
+class LeaderboardEntryResponse(BaseModel):
+    portfolio_id: str
+    total_value: Decimal
+    rank: int
+
+
+class LeaderboardResponse(BaseModel):
+    entries: list[LeaderboardEntryResponse]
+
+
 class ErrorResponse(BaseModel):
     error: str
     detail: str
@@ -219,6 +249,24 @@ def _alert_response(alert: Any) -> AlertResponse:
     )
 
 
+def _snapshot_response(snapshot: Any) -> SnapshotResponse:
+    return SnapshotResponse(
+        portfolio_id=snapshot.portfolio_id,
+        taken_at=snapshot.taken_at,
+        total_value=snapshot.total_value,
+        cash=snapshot.cash,
+        holdings_value=snapshot.holdings_value,
+        total_unrealized_pnl=snapshot.total_unrealized_pnl,
+    )
+
+
+def _snapshot_page_response(page: Any) -> SnapshotPageResponse:
+    return SnapshotPageResponse(
+        items=[_snapshot_response(s) for s in page.items],
+        cursor=page.cursor,
+    )
+
+
 def _order_response(order: Any) -> OrderEntityResponse:
     return OrderEntityResponse(
         order_id=order.order_id,
@@ -256,10 +304,16 @@ def get_valuator(request: Request) -> Valuator:
     return valuator
 
 
+def get_analytics(request: Request) -> Analytics:
+    analytics: Analytics = request.app.state.analytics
+    return analytics
+
+
 RepoDep = Annotated[Repository, Depends(get_repo)]
 EngineDep = Annotated[TradingEngine, Depends(get_engine)]
 CacheDep = Annotated[PriceCache, Depends(get_cache)]
 ValuatorDep = Annotated[Valuator, Depends(get_valuator)]
+AnalyticsDep = Annotated[Analytics, Depends(get_analytics)]
 
 
 # -- authentication / authorization ----------------------------------------
@@ -383,6 +437,7 @@ def create_app(
     )
     engine = TradingEngine(repo, clock=the_clock)
     valuator = Valuator(repo, cache)
+    analytics = Analytics(repo, valuator, clock=the_clock)
 
     app = FastAPI(title="hodlbook")
     app.state.settings = the_settings
@@ -390,6 +445,7 @@ def create_app(
     app.state.engine = engine
     app.state.cache = cache
     app.state.valuator = valuator
+    app.state.analytics = analytics
 
     _register_exception_handlers(app)
 
@@ -632,5 +688,72 @@ def create_app(
     def get_price(symbol: str, cache: CacheDep) -> PriceResponse:
         price = cache.get_cached_price(symbol)
         return PriceResponse(symbol=symbol, price=price)
+
+    @app.post(
+        "/portfolios/{user_id}/{portfolio_id}/snapshots",
+        response_model=SnapshotResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_tenant)],
+    )
+    def take_snapshot(
+        user_id: str, portfolio_id: str, repo: RepoDep, analytics: AnalyticsDep
+    ) -> SnapshotResponse:
+        if repo.get_portfolio(user_id, portfolio_id) is None:
+            raise ItemNotFoundError(f"portfolio {user_id}/{portfolio_id} not found")
+        return _snapshot_response(analytics.take_snapshot(user_id, portfolio_id))
+
+    @app.get(
+        "/portfolios/{user_id}/{portfolio_id}/snapshots",
+        response_model=SnapshotPageResponse,
+        dependencies=[Depends(require_tenant)],
+    )
+    def list_snapshots(
+        portfolio_id: str,
+        analytics: AnalyticsDep,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> SnapshotPageResponse:
+        page = analytics.series(portfolio_id, cursor=cursor, limit=limit)
+        return _snapshot_page_response(page)
+
+    @app.get(
+        "/portfolios/{user_id}/{portfolio_id}/returns",
+        response_model=ReturnsResponse,
+        dependencies=[Depends(require_tenant)],
+    )
+    def get_returns(
+        portfolio_id: str,
+        analytics: AnalyticsDep,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> ReturnsResponse:
+        page = analytics.series(portfolio_id, cursor=cursor, limit=limit)
+        return ReturnsResponse(
+            series=_snapshot_page_response(page),
+            return_pct=analytics.returns(portfolio_id),
+        )
+
+    @app.get(
+        "/leaderboard",
+        response_model=LeaderboardResponse,
+        # Authenticated but intentionally cross-tenant: the leaderboard ranks
+        # every principal's portfolios, so it requires a valid principal
+        # (Depends(get_principal)) but NOT require_tenant. To avoid leaking other
+        # tenants' details, the response exposes only portfolio_id + total_value +
+        # rank -- never user_id, holdings, or cash.
+        dependencies=[Depends(get_principal)],
+    )
+    def get_leaderboard(analytics: AnalyticsDep, limit: int = 10) -> LeaderboardResponse:
+        entries = analytics.leaderboard(limit)
+        return LeaderboardResponse(
+            entries=[
+                LeaderboardEntryResponse(
+                    portfolio_id=e.portfolio_id,
+                    total_value=e.total_value,
+                    rank=rank,
+                )
+                for rank, e in enumerate(entries, start=1)
+            ]
+        )
 
     return app
