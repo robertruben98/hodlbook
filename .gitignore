@@ -16,6 +16,9 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# MkDocs build output
+site/
+
 # Worktrees used by the agent pipeline
 .claude/
 
