@@ -28,7 +28,12 @@ from fastapi import Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from pydynantic import ItemNotFoundError, OptimisticLockError, PydynanticError
+from pydynantic import (
+    ItemNotFoundError,
+    OperationHook,
+    OptimisticLockError,
+    PydynanticError,
+)
 
 from .errors import (
     HodlbookError,
@@ -257,14 +262,19 @@ def create_app(
     *,
     provider: PriceProvider | None = None,
     clock: Callable[[], datetime] | None = None,
+    on_operation: OperationHook | None = None,
 ) -> FastAPI:
     """Build the hodlbook FastAPI app from an injected boto3 ``client``.
 
     Services are constructed once here (never boto3 itself) and stored on
     ``app.state``; the ``Depends`` accessors read them back per request.
+
+    Pass ``on_operation`` (e.g. ``observability.logging_hook()``) to enable
+    optional tracing/cost-attribution logging around each DynamoDB call. The
+    default of ``None`` leaves behavior unchanged.
     """
     the_clock = clock or _default_clock
-    table = build_table(client)
+    table = build_table(client, on_operation=on_operation)
     repo = Repository(table)
     the_provider = provider or MockPriceProvider({})
     cache = PriceCache(repo, the_provider, clock=the_clock)
