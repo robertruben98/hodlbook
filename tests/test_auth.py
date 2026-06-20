@@ -20,13 +20,13 @@ def _assert_error_shape(body: dict[str, object], error: str) -> None:
 
 # -- API: authentication (401) ----------------------------------------------
 def test_no_header_is_401(api_client: TestClient) -> None:
-    resp = api_client.get("/prices/bitcoin")
+    resp = api_client.get("/v1/prices/bitcoin")
     assert resp.status_code == 401
     _assert_error_shape(resp.json(), "AuthenticationError")
 
 
 def test_bad_token_is_401(api_client: TestClient) -> None:
-    resp = api_client.get("/prices/bitcoin", headers={"Authorization": "Bearer nope"})
+    resp = api_client.get("/v1/prices/bitcoin", headers={"Authorization": "Bearer nope"})
     assert resp.status_code == 401
     _assert_error_shape(resp.json(), "AuthenticationError")
 
@@ -34,7 +34,7 @@ def test_bad_token_is_401(api_client: TestClient) -> None:
 def test_revoked_key_is_401(api_client: TestClient, repo: Repository) -> None:
     raw, api_key = repo.issue_api_key("u1")
     repo.revoke_api_key("u1", api_key.key_id)
-    resp = api_client.get("/prices/bitcoin", headers={"Authorization": f"Bearer {raw}"})
+    resp = api_client.get("/v1/prices/bitcoin", headers={"Authorization": f"Bearer {raw}"})
     assert resp.status_code == 401
     _assert_error_shape(resp.json(), "AuthenticationError")
 
@@ -44,7 +44,7 @@ def test_cross_tenant_is_403(
     api_client: TestClient, auth_headers: dict[str, str], repo: Repository
 ) -> None:
     # auth_headers authenticates principal "u1"; hitting u2's portfolio -> 403.
-    resp = api_client.get("/portfolios/u2/p1", headers=auth_headers)
+    resp = api_client.get("/v1/portfolios/u2/p1", headers=auth_headers)
     assert resp.status_code == 403
     _assert_error_shape(resp.json(), "AuthorizationError")
 
@@ -53,7 +53,7 @@ def test_create_portfolio_for_other_principal_is_403(
     api_client: TestClient, auth_headers: dict[str, str]
 ) -> None:
     resp = api_client.post(
-        "/portfolios",
+        "/v1/portfolios",
         json={"user_id": "u2", "portfolio_id": "p1", "cash": "1"},
         headers=auth_headers,
     )
@@ -64,7 +64,7 @@ def test_create_portfolio_for_other_principal_is_403(
 # -- API: happy path ---------------------------------------------------------
 def test_x_api_key_header_authenticates(api_client: TestClient, repo: Repository) -> None:
     raw, _ = repo.issue_api_key("u1")
-    resp = api_client.get("/prices/bitcoin", headers={"X-API-Key": raw})
+    resp = api_client.get("/v1/prices/bitcoin", headers={"X-API-Key": raw})
     assert resp.status_code == 200
     assert resp.json()["symbol"] == "bitcoin"
 
@@ -73,13 +73,13 @@ def test_authenticated_owner_can_create_and_read(
     api_client: TestClient, auth_headers: dict[str, str]
 ) -> None:
     resp = api_client.post(
-        "/portfolios",
+        "/v1/portfolios",
         json={"user_id": "u1", "portfolio_id": "p1", "cash": "500"},
         headers=auth_headers,
     )
     assert resp.status_code == 201
 
-    resp = api_client.get("/portfolios/u1/p1", headers=auth_headers)
+    resp = api_client.get("/v1/portfolios/u1/p1", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["portfolio_id"] == "p1"
 

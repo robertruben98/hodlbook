@@ -44,3 +44,7 @@ class AuthenticationError(HodlbookError):
 
 class AuthorizationError(HodlbookError):
     """An authenticated caller tried to access another principal's resources."""
+
+
+class RateLimitExceeded(HodlbookError):
+    """A principal exceeded the per-minute request quota (-> HTTP 429)."""

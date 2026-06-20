@@ -424,13 +424,16 @@ def test_list_and_get_orders(repo: Repository) -> None:
 def authed_client(api_client: TestClient, auth_headers: dict[str, str]) -> Iterator[Any]:
     """The shared api_client with auth headers attached and a portfolio created."""
     api_client.headers.update(auth_headers)
-    api_client.post("/portfolios", json={"user_id": "u1", "portfolio_id": "p1", "cash": "100000"})
+    api_client.post(
+        "/v1/portfolios",
+        json={"user_id": "u1", "portfolio_id": "p1", "cash": "100000"},
+    )
     yield api_client
 
 
 def test_api_create_limit_order(authed_client: TestClient) -> None:
     resp = authed_client.post(
-        "/portfolios/u1/p1/orders/limit",
+        "/v1/portfolios/u1/p1/orders/limit",
         json={"symbol": "bitcoin", "side": "BUY", "quantity": "1", "limit_price": "45000"},
     )
     assert resp.status_code == 201
@@ -442,7 +445,7 @@ def test_api_create_limit_order(authed_client: TestClient) -> None:
 
 def test_api_create_dca_order(authed_client: TestClient) -> None:
     resp = authed_client.post(
-        "/portfolios/u1/p1/orders/dca",
+        "/v1/portfolios/u1/p1/orders/dca",
         json={
             "symbol": "bitcoin",
             "side": "BUY",
@@ -460,38 +463,39 @@ def test_api_create_dca_order(authed_client: TestClient) -> None:
 
 def test_api_list_get_cancel_order(authed_client: TestClient) -> None:
     created = authed_client.post(
-        "/portfolios/u1/p1/orders/limit",
+        "/v1/portfolios/u1/p1/orders/limit",
         json={"symbol": "bitcoin", "side": "BUY", "quantity": "1", "limit_price": "45000"},
     ).json()
     order_id = created["order_id"]
 
-    listed = authed_client.get("/portfolios/u1/p1/orders")
+    listed = authed_client.get("/v1/portfolios/u1/p1/orders")
     assert listed.status_code == 200
     assert [o["order_id"] for o in listed.json()] == [order_id]
 
-    got = authed_client.get(f"/portfolios/u1/p1/orders/{order_id}")
+    got = authed_client.get(f"/v1/portfolios/u1/p1/orders/{order_id}")
     assert got.status_code == 200
     assert got.json()["order_id"] == order_id
 
-    cancelled = authed_client.delete(f"/portfolios/u1/p1/orders/{order_id}")
+    cancelled = authed_client.delete(f"/v1/portfolios/u1/p1/orders/{order_id}")
     assert cancelled.status_code == 204
-    assert authed_client.get(f"/portfolios/u1/p1/orders/{order_id}").json()["status"] == "CANCELLED"
+    fetched = authed_client.get(f"/v1/portfolios/u1/p1/orders/{order_id}")
+    assert fetched.json()["status"] == "CANCELLED"
 
 
 def test_api_get_missing_order_404(authed_client: TestClient) -> None:
-    resp = authed_client.get("/portfolios/u1/p1/orders/nope")
+    resp = authed_client.get("/v1/portfolios/u1/p1/orders/nope")
     assert resp.status_code == 404
     assert resp.json()["error"] == "OrderNotFound"
 
 
 def test_api_cancel_missing_order_404(authed_client: TestClient) -> None:
-    resp = authed_client.delete("/portfolios/u1/p1/orders/nope")
+    resp = authed_client.delete("/v1/portfolios/u1/p1/orders/nope")
     assert resp.status_code == 404
 
 
 def test_api_order_on_missing_portfolio_404(authed_client: TestClient) -> None:
     resp = authed_client.post(
-        "/portfolios/u1/ghost/orders/limit",
+        "/v1/portfolios/u1/ghost/orders/limit",
         json={"symbol": "bitcoin", "side": "BUY", "quantity": "1", "limit_price": "45000"},
     )
     assert resp.status_code == 404
@@ -499,7 +503,7 @@ def test_api_order_on_missing_portfolio_404(authed_client: TestClient) -> None:
 
 def test_api_dca_on_missing_portfolio_404(authed_client: TestClient) -> None:
     resp = authed_client.post(
-        "/portfolios/u1/ghost/orders/dca",
+        "/v1/portfolios/u1/ghost/orders/dca",
         json={
             "symbol": "bitcoin",
             "side": "BUY",
@@ -513,11 +517,11 @@ def test_api_dca_on_missing_portfolio_404(authed_client: TestClient) -> None:
 
 def test_api_orders_require_auth(api_client: TestClient) -> None:
     # No auth header -> 401 from get_principal.
-    resp = api_client.get("/portfolios/u1/p1/orders")
+    resp = api_client.get("/v1/portfolios/u1/p1/orders")
     assert resp.status_code == 401
 
 
 def test_api_orders_reject_other_tenant(api_client: TestClient, repo: Repository) -> None:
     raw, _ = repo.issue_api_key("intruder")
-    resp = api_client.get("/portfolios/u1/p1/orders", headers={"Authorization": f"Bearer {raw}"})
+    resp = api_client.get("/v1/portfolios/u1/p1/orders", headers={"Authorization": f"Bearer {raw}"})
     assert resp.status_code == 403

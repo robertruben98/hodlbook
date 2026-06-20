@@ -18,18 +18,22 @@ All money is :class:`~decimal.Decimal`; floats never touch the wire.
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Request, Response, status
+from fastapi import APIRouter, Depends, FastAPI, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest
 from pydantic import BaseModel
 from pydynantic import (
     ItemNotFoundError,
+    OperationEvent,
     OperationHook,
     OptimisticLockError,
     PydynanticError,
@@ -44,8 +48,15 @@ from .errors import (
     InsufficientHoldings,
     InvalidOrder,
     OrderNotFound,
+    RateLimitExceeded,
     TradeConflict,
     UnknownSymbol,
+)
+from .observability import (
+    RateLimiter,
+    build_metrics,
+    request_id_var,
+    setup_logging,
 )
 from .prices import MockPriceProvider, PriceCache, PriceProvider
 from .repository import Repository, _hash_token
@@ -53,6 +64,8 @@ from .settings import Settings, get_settings
 from .storage import Direction, OrderStatus, OrderType, Side, build_table
 from .trading import TradingEngine
 from .valuation import Valuator
+
+_ACCESS_LOGGER = logging.getLogger("hodlbook.access")
 
 
 def _default_clock() -> datetime:
@@ -336,6 +349,7 @@ def get_principal(request: Request, repo: RepoDep) -> str:
     if key is None or key.revoked:
         raise AuthenticationError("invalid API key")
     principal: str = key.user_id
+    request.state.principal = principal
     return principal
 
 
@@ -352,6 +366,24 @@ def require_tenant(user_id: str, principal: PrincipalDep) -> str:
     if user_id != principal:
         raise AuthorizationError("cannot access another principal's resources")
     return user_id
+
+
+# -- rate limiting ----------------------------------------------------------
+def rate_limit(request: Request) -> None:
+    """Per-principal fixed-window rate-limit guard for the ``/v1`` router.
+
+    Keys on the authenticated principal when present (set by ``get_principal``
+    on the same request) and otherwise on the client host, so unauthenticated
+    callers are still bounded. Exceeding the per-minute quota raises
+    :class:`RateLimitExceeded` (-> 429). Health/metrics live at the root and are
+    exempt because the dependency is attached only to the ``/v1`` router.
+    """
+    limiter: RateLimiter = request.app.state.rate_limiter
+    principal: str | None = getattr(request.state, "principal", None)
+    if principal is None:
+        principal = request.client.host if request.client is not None else "anonymous"
+    if not limiter.check(principal):
+        raise RateLimitExceeded("rate limit exceeded")
 
 
 # -- exception handlers -----------------------------------------------------
@@ -374,6 +406,8 @@ def _register_exception_handlers(app: FastAPI) -> None:
         # they map to 401/403 ahead of the generic HodlbookError -> 400 handler.
         (AuthenticationError, status.HTTP_401_UNAUTHORIZED),
         (AuthorizationError, status.HTTP_403_FORBIDDEN),
+        # Rate-limit overruns map to 429 ahead of the generic HodlbookError -> 400.
+        (RateLimitExceeded, status.HTTP_429_TOO_MANY_REQUESTS),
     ]
     for exc_type, code in leaf:
 
@@ -426,7 +460,22 @@ def create_app(
     """
     the_settings = settings or get_settings()
     the_clock = clock or _default_clock
-    table = build_table(client, on_operation=on_operation)
+
+    setup_logging(the_settings.log_level)
+    registry = CollectorRegistry()
+    metrics = build_metrics(registry)
+
+    # Compose the metrics hook with any caller-supplied on_operation: both fire.
+    if on_operation is None:
+        composed_hook: OperationHook = metrics.metrics_hook
+    else:
+        caller_hook = on_operation
+
+        def composed_hook(event: OperationEvent) -> None:
+            caller_hook(event)
+            metrics.metrics_hook(event)
+
+    table = build_table(client, on_operation=composed_hook)
     repo = Repository(table)
     the_provider = provider or MockPriceProvider({})
     cache = PriceCache(
@@ -446,10 +495,76 @@ def create_app(
     app.state.cache = cache
     app.state.valuator = valuator
     app.state.analytics = analytics
+    app.state.client = client
+    app.state.registry = registry
+    app.state.metrics = metrics
+    app.state.rate_limiter = RateLimiter(the_settings.rate_limit_per_minute, clock=the_clock)
 
     _register_exception_handlers(app)
 
-    @app.post(
+    @app.middleware("http")
+    async def observability_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        request_id = request.headers.get("X-Request-ID") or uuid4().hex
+        token = request_id_var.set(request_id)
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        finally:
+            request_id_var.reset(token)
+        response.headers["X-Request-ID"] = request_id
+        duration = time.perf_counter() - start
+        route = request.scope.get("route")
+        route_template = route.path if route is not None else request.url.path
+        if the_settings.metrics_enabled:
+            metrics.http_requests_total.labels(
+                method=request.method,
+                route=route_template,
+                status=str(response.status_code),
+            ).inc()
+            metrics.http_request_duration_seconds.labels(
+                method=request.method,
+                route=route_template,
+            ).observe(duration)
+        _ACCESS_LOGGER.info(
+            "request",
+            extra={
+                "http_method": request.method,
+                "route": route_template,
+                "status": response.status_code,
+                "duration_ms": round(duration * 1000, 3),
+            },
+        )
+        return response
+
+    # -- ops endpoints (root, unversioned, unauthenticated) ----------------
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/readyz")
+    def readyz() -> Response:
+        try:
+            client.describe_table(TableName=the_settings.table_name)
+        except Exception as exc:  # noqa: BLE001 -- probe: any failure means not ready
+            return _error_response(exc, status.HTTP_503_SERVICE_UNAVAILABLE)
+        return JSONResponse(content={"status": "ready"})
+
+    @app.get("/metrics")
+    def metrics_endpoint() -> Response:
+        if not the_settings.metrics_enabled:
+            return Response(status_code=status.HTTP_404_NOT_FOUND)
+        return PlainTextResponse(
+            content=generate_latest(registry).decode("utf-8"),
+            media_type=CONTENT_TYPE_LATEST,
+        )
+
+    # -- versioned business router -----------------------------------------
+    router = APIRouter(prefix="/v1", dependencies=[Depends(rate_limit)])
+
+    @router.post(
         "/portfolios",
         response_model=PortfolioResponse,
         status_code=status.HTTP_201_CREATED,
@@ -462,7 +577,7 @@ def create_app(
         portfolio = repo.create_portfolio(body.user_id, body.portfolio_id, body.cash)
         return _portfolio_response(portfolio)
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}",
         response_model=PortfolioResponse,
         dependencies=[Depends(require_tenant)],
@@ -473,7 +588,7 @@ def create_app(
             raise ItemNotFoundError(f"portfolio {user_id}/{portfolio_id} not found")
         return _portfolio_response(portfolio)
 
-    @app.post(
+    @router.post(
         "/portfolios/{user_id}/{portfolio_id}/orders",
         response_model=OrderResponse,
         status_code=status.HTTP_201_CREATED,
@@ -499,7 +614,7 @@ def create_app(
             realized_pnl=result.realized_pnl,
         )
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/holdings",
         response_model=HoldingsResponse,
         dependencies=[Depends(require_tenant)],
@@ -508,7 +623,7 @@ def create_app(
         holdings = repo.get_holdings(portfolio_id)
         return HoldingsResponse(holdings=[_holding_response(h) for h in holdings])
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/valuation",
         response_model=ValuationResponse,
         dependencies=[Depends(require_tenant)],
@@ -533,7 +648,7 @@ def create_app(
             total_unrealized_pnl=v.total_unrealized_pnl,
         )
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/trades",
         response_model=TradePageResponse,
         dependencies=[Depends(require_tenant)],
@@ -550,7 +665,7 @@ def create_app(
             cursor=page.cursor,
         )
 
-    @app.post(
+    @router.post(
         "/portfolios/{user_id}/{portfolio_id}/alerts",
         response_model=AlertResponse,
         status_code=status.HTTP_201_CREATED,
@@ -566,7 +681,7 @@ def create_app(
         )
         return _alert_response(alert)
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/alerts",
         response_model=list[AlertResponse],
         dependencies=[Depends(require_tenant)],
@@ -574,7 +689,7 @@ def create_app(
     def list_alerts(portfolio_id: str, repo: RepoDep) -> list[AlertResponse]:
         return [_alert_response(a) for a in repo.list_alerts(portfolio_id)]
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/alerts/{alert_id}",
         response_model=AlertResponse,
         dependencies=[Depends(require_tenant)],
@@ -585,7 +700,7 @@ def create_app(
             raise ItemNotFoundError(f"alert {alert_id} not found")
         return _alert_response(alert)
 
-    @app.delete(
+    @router.delete(
         "/portfolios/{user_id}/{portfolio_id}/alerts/{alert_id}",
         status_code=status.HTTP_204_NO_CONTENT,
         dependencies=[Depends(require_tenant)],
@@ -594,7 +709,7 @@ def create_app(
         repo.delete_alert(portfolio_id, alert_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    @app.post(
+    @router.post(
         "/portfolios/{user_id}/{portfolio_id}/orders/limit",
         response_model=OrderEntityResponse,
         status_code=status.HTTP_201_CREATED,
@@ -620,7 +735,7 @@ def create_app(
         )
         return _order_response(order)
 
-    @app.post(
+    @router.post(
         "/portfolios/{user_id}/{portfolio_id}/orders/dca",
         response_model=OrderEntityResponse,
         status_code=status.HTTP_201_CREATED,
@@ -650,7 +765,7 @@ def create_app(
         )
         return _order_response(order)
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/orders",
         response_model=list[OrderEntityResponse],
         dependencies=[Depends(require_tenant)],
@@ -658,7 +773,7 @@ def create_app(
     def list_orders(portfolio_id: str, repo: RepoDep) -> list[OrderEntityResponse]:
         return [_order_response(o) for o in repo.list_orders(portfolio_id)]
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/orders/{order_id}",
         response_model=OrderEntityResponse,
         dependencies=[Depends(require_tenant)],
@@ -669,7 +784,7 @@ def create_app(
             raise OrderNotFound(f"order {order_id} not found")
         return _order_response(order)
 
-    @app.delete(
+    @router.delete(
         "/portfolios/{user_id}/{portfolio_id}/orders/{order_id}",
         status_code=status.HTTP_204_NO_CONTENT,
         dependencies=[Depends(require_tenant)],
@@ -680,7 +795,7 @@ def create_app(
         repo.cancel_order(portfolio_id, order_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    @app.get(
+    @router.get(
         "/prices/{symbol}",
         response_model=PriceResponse,
         dependencies=[Depends(get_principal)],
@@ -689,7 +804,7 @@ def create_app(
         price = cache.get_cached_price(symbol)
         return PriceResponse(symbol=symbol, price=price)
 
-    @app.post(
+    @router.post(
         "/portfolios/{user_id}/{portfolio_id}/snapshots",
         response_model=SnapshotResponse,
         status_code=status.HTTP_201_CREATED,
@@ -702,7 +817,7 @@ def create_app(
             raise ItemNotFoundError(f"portfolio {user_id}/{portfolio_id} not found")
         return _snapshot_response(analytics.take_snapshot(user_id, portfolio_id))
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/snapshots",
         response_model=SnapshotPageResponse,
         dependencies=[Depends(require_tenant)],
@@ -716,7 +831,7 @@ def create_app(
         page = analytics.series(portfolio_id, cursor=cursor, limit=limit)
         return _snapshot_page_response(page)
 
-    @app.get(
+    @router.get(
         "/portfolios/{user_id}/{portfolio_id}/returns",
         response_model=ReturnsResponse,
         dependencies=[Depends(require_tenant)],
@@ -733,7 +848,7 @@ def create_app(
             return_pct=analytics.returns(portfolio_id),
         )
 
-    @app.get(
+    @router.get(
         "/leaderboard",
         response_model=LeaderboardResponse,
         # Authenticated but intentionally cross-tenant: the leaderboard ranks
@@ -756,4 +871,5 @@ def create_app(
             ]
         )
 
+    app.include_router(router)
     return app

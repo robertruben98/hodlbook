@@ -32,6 +32,8 @@ class Settings(BaseSettings):
         price_ttl_seconds: Freshness window for cached price ticks.
         default_starting_cash: Default cash balance for new portfolios.
         log_level: Root log level (e.g. ``"INFO"``, ``"DEBUG"``).
+        rate_limit_per_minute: Max requests per principal per fixed minute window.
+        metrics_enabled: Whether to record/serve Prometheus metrics.
     """
 
     model_config = SettingsConfigDict(env_prefix="HODLBOOK_", env_file=".env")
@@ -43,6 +45,8 @@ class Settings(BaseSettings):
     price_ttl_seconds: int = 60
     default_starting_cash: Decimal = Decimal("100000")
     log_level: str = "INFO"
+    rate_limit_per_minute: int = 120
+    metrics_enabled: bool = True
 
 
 @lru_cache
