@@ -114,6 +114,7 @@ class Models:
     Trade: type[Entity]
     PriceTick: type[Entity]
     Alert: type[Entity]
+    ApiKey: type[Entity]
 
 
 def build_models(table: Table) -> Models:
@@ -178,10 +179,22 @@ def build_models(table: Table) -> Models:
             primary = key(pk="PORTFOLIO#{portfolio_id}", sk="ALERT#{alert_id}")
             by_symbol = key(index="GSI2", pk="SYMBOL#{symbol}", sk="ALERT#{alert_id}")
 
+    class ApiKey(Entity, table=table, name="api_key"):
+        key_id: str
+        user_id: str
+        key_hash: str
+        revoked: bool = False
+        created_at: datetime | None = created_at_attr()
+
+        class Meta:
+            primary = key(pk="APIKEY#{key_hash}", sk="APIKEY")
+            by_user = key(index="GSI1", pk="USER#{user_id}", sk="APIKEY#{key_id}")
+
     return Models(
         Portfolio=Portfolio,
         Holding=Holding,
         Trade=Trade,
         PriceTick=PriceTick,
         Alert=Alert,
+        ApiKey=ApiKey,
     )

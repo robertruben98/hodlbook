@@ -32,3 +32,11 @@ class TradeConflict(HodlbookError):
 
 class UnknownSymbol(HodlbookError):
     """A price was requested for a symbol the price provider does not know."""
+
+
+class AuthenticationError(HodlbookError):
+    """The request carried no valid API key (missing, unknown, or revoked)."""
+
+
+class AuthorizationError(HodlbookError):
+    """An authenticated caller tried to access another principal's resources."""

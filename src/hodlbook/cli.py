@@ -3,7 +3,7 @@
 Provides operator subcommands for the containerized stack:
 
 * ``create-table``  -- provision the single ``hodlbook`` DynamoDB table.
-* ``issue-api-key`` -- placeholder until M9 lands (prints guidance, no-op).
+* ``issue-api-key`` -- mint an API key for a user; prints the raw token once.
 * ``seed-demo``     -- create a demo portfolio plus a couple of trades.
 * ``refresh-prices``-- placeholder for the price-refresh pass (no-op).
 
@@ -102,10 +102,12 @@ def _cmd_create_table(args: argparse.Namespace) -> int:
 
 
 def _cmd_issue_api_key(args: argparse.Namespace) -> int:
-    print(
-        "issue-api-key: not yet implemented -- the API-key admin command lands "
-        "with M9 (auth). Until then the API runs unauthenticated."
-    )
+    client = _client_from_args(args)
+    repo = Repository(build_table(client))
+    raw, api_key = repo.issue_api_key(args.user_id)
+    print(f"issued API key {api_key.key_id} for user {args.user_id}")
+    print(f"  token: {raw}")
+    print("  store this now -- it is not recoverable (only its hash is stored)")
     return 0
 
 
@@ -141,8 +143,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_client_args(p_create)
     p_create.set_defaults(func=_cmd_create_table)
 
-    p_key = sub.add_parser("issue-api-key", help="issue an API key (placeholder)")
+    p_key = sub.add_parser("issue-api-key", help="issue an API key for a user")
     _add_client_args(p_key)
+    p_key.add_argument("--user-id", required=True, help="user the key authenticates as")
     p_key.set_defaults(func=_cmd_issue_api_key)
 
     p_seed = sub.add_parser("seed-demo", help="seed a demo portfolio + trades")

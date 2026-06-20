@@ -50,3 +50,14 @@ def api_client(dynamodb_client: Any) -> Iterator[TestClient]:
     )
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture
+def auth_headers(repo: Repository) -> dict[str, str]:
+    """A valid bearer-token header for principal ``u1``.
+
+    Issues the key through the same ``repo`` (and thus the same mocked table)
+    the ``api_client`` reads from, so the API can authenticate the token.
+    """
+    raw, _ = repo.issue_api_key("u1")
+    return {"Authorization": f"Bearer {raw}"}

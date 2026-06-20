@@ -36,6 +36,8 @@ from pydynantic import (
 )
 
 from .errors import (
+    AuthenticationError,
+    AuthorizationError,
     HodlbookError,
     InsufficientFunds,
     InsufficientHoldings,
@@ -44,7 +46,7 @@ from .errors import (
     UnknownSymbol,
 )
 from .prices import MockPriceProvider, PriceCache, PriceProvider
-from .repository import Repository
+from .repository import Repository, _hash_token
 from .settings import Settings, get_settings
 from .storage import Direction, Side, build_table
 from .trading import TradingEngine
@@ -214,6 +216,44 @@ CacheDep = Annotated[PriceCache, Depends(get_cache)]
 ValuatorDep = Annotated[Valuator, Depends(get_valuator)]
 
 
+# -- authentication / authorization ----------------------------------------
+def get_principal(request: Request, repo: RepoDep) -> str:
+    """Resolve the authenticated principal (``user_id``) from the request.
+
+    Reads a bearer token from ``Authorization: Bearer <token>`` (falling back to
+    the ``X-API-Key`` header), hashes it, and looks the key up. A missing,
+    unknown, or revoked key raises :class:`AuthenticationError` (-> 401).
+    """
+    token: str | None = None
+    auth = request.headers.get("Authorization")
+    if auth and auth.lower().startswith("bearer "):
+        token = auth[len("bearer ") :].strip()
+    if token is None:
+        token = request.headers.get("X-API-Key")
+    if not token:
+        raise AuthenticationError("missing API key")
+    key = repo.get_api_key_by_hash(_hash_token(token))
+    if key is None or key.revoked:
+        raise AuthenticationError("invalid API key")
+    principal: str = key.user_id
+    return principal
+
+
+PrincipalDep = Annotated[str, Depends(get_principal)]
+
+
+def require_tenant(user_id: str, principal: PrincipalDep) -> str:
+    """Authorize a path ``user_id`` against the authenticated ``principal``.
+
+    A caller may only touch resources under their own ``user_id``; any mismatch
+    raises :class:`AuthorizationError` (-> 403). The path ``user_id`` is never
+    trusted on its own.
+    """
+    if user_id != principal:
+        raise AuthorizationError("cannot access another principal's resources")
+    return user_id
+
+
 # -- exception handlers -----------------------------------------------------
 def _error_response(exc: Exception, code: int) -> JSONResponse:
     body = ErrorResponse(error=type(exc).__name__, detail=str(exc))
@@ -229,6 +269,10 @@ def _register_exception_handlers(app: FastAPI) -> None:
         (InsufficientFunds, status.HTTP_409_CONFLICT),
         (InsufficientHoldings, status.HTTP_409_CONFLICT),
         (InvalidOrder, status.HTTP_422_UNPROCESSABLE_CONTENT),
+        # Auth errors are HodlbookError subclasses; register them as leaves so
+        # they map to 401/403 ahead of the generic HodlbookError -> 400 handler.
+        (AuthenticationError, status.HTTP_401_UNAUTHORIZED),
+        (AuthorizationError, status.HTTP_403_FORBIDDEN),
     ]
     for exc_type, code in leaf:
 
@@ -307,13 +351,18 @@ def create_app(
         response_model=PortfolioResponse,
         status_code=status.HTTP_201_CREATED,
     )
-    def create_portfolio(body: PortfolioCreateRequest, repo: RepoDep) -> PortfolioResponse:
+    def create_portfolio(
+        body: PortfolioCreateRequest, repo: RepoDep, principal: PrincipalDep
+    ) -> PortfolioResponse:
+        if body.user_id != principal:
+            raise AuthorizationError("cannot create a portfolio for another principal")
         portfolio = repo.create_portfolio(body.user_id, body.portfolio_id, body.cash)
         return _portfolio_response(portfolio)
 
     @app.get(
         "/portfolios/{user_id}/{portfolio_id}",
         response_model=PortfolioResponse,
+        dependencies=[Depends(require_tenant)],
     )
     def get_portfolio(user_id: str, portfolio_id: str, repo: RepoDep) -> PortfolioResponse:
         portfolio = repo.get_portfolio(user_id, portfolio_id)
@@ -325,6 +374,7 @@ def create_app(
         "/portfolios/{user_id}/{portfolio_id}/orders",
         response_model=OrderResponse,
         status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_tenant)],
     )
     def create_order(
         user_id: str,
@@ -349,6 +399,7 @@ def create_app(
     @app.get(
         "/portfolios/{user_id}/{portfolio_id}/holdings",
         response_model=HoldingsResponse,
+        dependencies=[Depends(require_tenant)],
     )
     def list_holdings(portfolio_id: str, repo: RepoDep) -> HoldingsResponse:
         holdings = repo.get_holdings(portfolio_id)
@@ -357,6 +408,7 @@ def create_app(
     @app.get(
         "/portfolios/{user_id}/{portfolio_id}/valuation",
         response_model=ValuationResponse,
+        dependencies=[Depends(require_tenant)],
     )
     def get_valuation(user_id: str, portfolio_id: str, valuator: ValuatorDep) -> ValuationResponse:
         v = valuator.value(user_id, portfolio_id)
@@ -381,6 +433,7 @@ def create_app(
     @app.get(
         "/portfolios/{user_id}/{portfolio_id}/trades",
         response_model=TradePageResponse,
+        dependencies=[Depends(require_tenant)],
     )
     def list_trades(
         portfolio_id: str,
@@ -398,6 +451,7 @@ def create_app(
         "/portfolios/{user_id}/{portfolio_id}/alerts",
         response_model=AlertResponse,
         status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_tenant)],
     )
     def create_alert(portfolio_id: str, body: AlertCreateRequest, repo: RepoDep) -> AlertResponse:
         alert = repo.create_alert(
@@ -412,6 +466,7 @@ def create_app(
     @app.get(
         "/portfolios/{user_id}/{portfolio_id}/alerts",
         response_model=list[AlertResponse],
+        dependencies=[Depends(require_tenant)],
     )
     def list_alerts(portfolio_id: str, repo: RepoDep) -> list[AlertResponse]:
         return [_alert_response(a) for a in repo.list_alerts(portfolio_id)]
@@ -419,6 +474,7 @@ def create_app(
     @app.get(
         "/portfolios/{user_id}/{portfolio_id}/alerts/{alert_id}",
         response_model=AlertResponse,
+        dependencies=[Depends(require_tenant)],
     )
     def get_alert(portfolio_id: str, alert_id: str, repo: RepoDep) -> AlertResponse:
         alert = repo.get_alert(portfolio_id, alert_id)
@@ -429,12 +485,17 @@ def create_app(
     @app.delete(
         "/portfolios/{user_id}/{portfolio_id}/alerts/{alert_id}",
         status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_tenant)],
     )
     def delete_alert(portfolio_id: str, alert_id: str, repo: RepoDep) -> Response:
         repo.delete_alert(portfolio_id, alert_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    @app.get("/prices/{symbol}", response_model=PriceResponse)
+    @app.get(
+        "/prices/{symbol}",
+        response_model=PriceResponse,
+        dependencies=[Depends(get_principal)],
+    )
     def get_price(symbol: str, cache: CacheDep) -> PriceResponse:
         price = cache.get_cached_price(symbol)
         return PriceResponse(symbol=symbol, price=price)
