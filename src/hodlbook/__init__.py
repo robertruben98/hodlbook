@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .alerts import AlertEvaluator, FiredAlert
 from .api import create_app
 from .errors import (
     HodlbookError,
@@ -35,7 +36,9 @@ __version__ = "0.1.0"
 __all__ = [
     "MAX_RETRIES",
     "TABLE_NAME",
+    "AlertEvaluator",
     "Direction",
+    "FiredAlert",
     "HodlbookError",
     "HoldingValuation",
     "HttpPriceProvider",
