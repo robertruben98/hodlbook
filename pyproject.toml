@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hodlbook"
-version = "0.1.0"
+version = "1.0.0"
 description = "A crypto paper-trading portfolio ledger API, built on pydynantic single-table DynamoDB."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [{ name = "Robert Ruben" }]
 keywords = ["crypto", "paper-trading", "portfolio", "dynamodb", "pydynantic", "fastapi"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",

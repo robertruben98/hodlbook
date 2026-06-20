@@ -12,6 +12,7 @@ from .errors import (
     TradeConflict,
     UnknownSymbol,
 )
+from .observability import collecting_hook, logging_hook
 from .prices import (
     HttpPriceProvider,
     MockPriceProvider,
@@ -31,7 +32,7 @@ from .storage import (
 from .trading import MAX_RETRIES, TradeResult, TradingEngine
 from .valuation import HoldingValuation, Valuation, Valuator
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "MAX_RETRIES",
@@ -39,6 +40,8 @@ __all__ = [
     "AlertEvaluator",
     "Direction",
     "FiredAlert",
+    "collecting_hook",
+    "logging_hook",
     "HodlbookError",
     "HoldingValuation",
     "HttpPriceProvider",
