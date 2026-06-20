@@ -37,6 +37,9 @@ class Repository:
         return self.models.Portfolio.get(user_id=user_id, portfolio_id=portfolio_id)
 
     # -- holdings -----------------------------------------------------------
+    def get_holding(self, portfolio_id: str, symbol: str) -> Any | None:
+        return self.models.Holding.get(portfolio_id=portfolio_id, symbol=symbol)
+
     def upsert_holding(
         self, portfolio_id: str, symbol: str, quantity: Decimal, avg_cost: Decimal
     ) -> Any:
