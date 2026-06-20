@@ -9,13 +9,25 @@ and reads.
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from pydynantic import F, Page, Table, attr_not_exists
 
 from .storage import Direction, Models, Side, build_models
+
+
+def _hash_token(raw: str) -> str:
+    """Return the SHA-256 hex digest of a raw API token.
+
+    Only the hash is ever persisted; the raw token is shown to the caller once
+    at issue time and is otherwise unrecoverable.
+    """
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 class Repository:
@@ -154,3 +166,34 @@ class Repository:
     def delete_alert(self, portfolio_id: str, alert_id: str) -> None:
         """Delete an alert by its primary key (idempotent)."""
         self.models.Alert.delete(portfolio_id=portfolio_id, alert_id=alert_id)
+
+    # -- api keys -----------------------------------------------------------
+    def issue_api_key(self, user_id: str) -> tuple[str, Any]:
+        """Mint a new API key for ``user_id``.
+
+        Returns ``(raw_token, entity)``. The raw token is generated here and
+        returned ONLY from this method -- the table stores its SHA-256 hash, so
+        the plaintext cannot be recovered afterwards.
+        """
+        raw = secrets.token_urlsafe(32)
+        api_key = self.models.ApiKey(
+            key_id=uuid4().hex,
+            user_id=user_id,
+            key_hash=_hash_token(raw),
+        )
+        entity = self.models.ApiKey.put(api_key)
+        return raw, entity
+
+    def get_api_key_by_hash(self, key_hash: str) -> Any | None:
+        return self.models.ApiKey.get(key_hash=key_hash)
+
+    def revoke_api_key(self, user_id: str, key_id: str) -> None:
+        """Mark a user's API key revoked (no-op if it does not exist)."""
+        for api_key in self.list_api_keys(user_id):
+            if api_key.key_id == key_id:
+                api_key.revoked = True
+                self.models.ApiKey.put(api_key)
+                return
+
+    def list_api_keys(self, user_id: str) -> list[Any]:
+        return self.models.ApiKey.query.by_user(user_id=user_id).begins_with("APIKEY#").all()

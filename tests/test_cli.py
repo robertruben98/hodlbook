@@ -55,8 +55,22 @@ def test_seed_demo_creates_portfolio_and_trades(mocked_client: Any) -> None:
     assert symbols == {"bitcoin", "ethereum"}
 
 
-def test_issue_api_key_is_noop(mocked_client: Any) -> None:
-    assert cli.main(["issue-api-key"]) == 0
+def test_issue_api_key_mints_and_prints_token(
+    mocked_client: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    create_table(mocked_client)
+    rc = cli.main(["issue-api-key", "--user-id", "alice"])
+    assert rc == 0
+
+    out = capsys.readouterr().out
+    assert "not recoverable" in out
+
+    # The minted key is persisted (and authenticatable) for the user.
+    repo = Repository(build_table(mocked_client))
+    keys = repo.list_api_keys("alice")
+    assert len(keys) == 1
+    assert keys[0].user_id == "alice"
+    assert keys[0].revoked is False
 
 
 def test_refresh_prices_is_noop(mocked_client: Any) -> None:
