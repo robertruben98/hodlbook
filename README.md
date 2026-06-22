@@ -1,5 +1,7 @@
 # hodlbook
 
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://robertruben98.github.io/hodlbook/)
+
 **A crypto paper-trading portfolio ledger API — built on [pydynantic](https://pypi.org/project/pydynantic/) single-table DynamoDB.**
 
 `hodlbook` lets users run a virtual crypto portfolio: hold a cash balance, place
