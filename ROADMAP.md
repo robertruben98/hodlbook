@@ -1,4 +1,8 @@
-# Roadmap to hodlbook 1.0
+# hodlbook — build plan (delivered)
+
+> **Status:** every milestone below shipped in **1.0.0**; the project has since
+> released **2.0.0** (auth, advanced orders, analytics, observability). This
+> document is kept as the record of how the app was built on pydynantic.
 
 `hodlbook` is a crypto paper-trading portfolio ledger API whose entire data layer
 is built on **[pydynantic](https://github.com/robertruben98/pydynantic)**

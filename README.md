@@ -11,8 +11,9 @@ application of **pydynantic**: every access pattern is a single-table design,
 trades are atomic DynamoDB transactions, balances use optimistic locking, prices
 are TTL-cached, and history is cursor-paginated.
 
-> Status: **alpha / under construction.** See [ROADMAP.md](ROADMAP.md) for the
-> plan and progress to a 1.0 release.
+> Status: **stable — v2.0.0 released** (auth & multi-tenancy, advanced/recurring
+> orders, analytics, observability, containerized deploy, hardened CI). See
+> [CHANGELOG.md](CHANGELOG.md) for releases and [ROADMAP.md](ROADMAP.md) for how it was built.
 
 ## Why it exists
 
