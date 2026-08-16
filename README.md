@@ -49,14 +49,22 @@ hodlbook runs against any DynamoDB endpoint via an injected boto3 client
 import boto3
 from decimal import Decimal
 from hodlbook import (
-    build_table, create_table, Repository, TradingEngine,
-    MockPriceProvider, PriceCache, Valuator, AlertEvaluator, Side, Direction,
+    build_table,
+    create_table,
+    Repository,
+    TradingEngine,
+    MockPriceProvider,
+    PriceCache,
+    Valuator,
+    AlertEvaluator,
+    Side,
+    Direction,
 )
 
-client = boto3.client("dynamodb")          # injected — your creds/region/endpoint
-create_table(client)                       # one-time (or use CDK/Terraform in prod)
+client = boto3.client("dynamodb")  # injected — your creds/region/endpoint
+create_table(client)  # one-time (or use CDK/Terraform in prod)
 
-repo   = Repository(build_table(client))
+repo = Repository(build_table(client))
 prices = PriceCache(repo, MockPriceProvider({"bitcoin": Decimal("50000")}))
 engine = TradingEngine(repo)
 valuator = Valuator(repo, prices)
@@ -67,9 +75,9 @@ repo.create_portfolio(user_id="u1", portfolio_id="main", cash=Decimal("100000"))
 engine.buy("u1", "main", "bitcoin", Decimal("1"), Decimal("50000"))
 
 result = engine.sell("u1", "main", "bitcoin", Decimal("0.5"), Decimal("60000"))
-print(result.realized_pnl)                 # Decimal('5000')
+print(result.realized_pnl)  # Decimal('5000')
 
-snapshot = valuator.value("u1", "main")    # cash + holdings, marked to current prices
+snapshot = valuator.value("u1", "main")  # cash + holdings, marked to current prices
 print(snapshot.total_value, snapshot.total_unrealized_pnl)
 
 # Price alerts (fired by the evaluator against fresh prices).
@@ -83,7 +91,7 @@ fired = AlertEvaluator(repo, prices).evaluate(["bitcoin"])
 import boto3
 from hodlbook import create_app
 
-app = create_app(boto3.client("dynamodb"))   # inject the client; ASGI app
+app = create_app(boto3.client("dynamodb"))  # inject the client; ASGI app
 # uvicorn:  uvicorn mymodule:app
 # Endpoints: POST /portfolios, POST /portfolios/{user}/{pf}/orders,
 #            GET .../holdings, .../valuation, .../trades?cursor=, alerts CRUD,

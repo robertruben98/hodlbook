@@ -17,12 +17,19 @@ DynamoDB Local; in tests wrap it in `moto`.
 import boto3
 from decimal import Decimal
 from hodlbook import (
-    build_table, create_table, Repository, TradingEngine,
-    MockPriceProvider, PriceCache, Valuator, AlertEvaluator, Direction,
+    build_table,
+    create_table,
+    Repository,
+    TradingEngine,
+    MockPriceProvider,
+    PriceCache,
+    Valuator,
+    AlertEvaluator,
+    Direction,
 )
 
-client = boto3.client("dynamodb")   # injected
-create_table(client)                # one-time provisioning
+client = boto3.client("dynamodb")  # injected
+create_table(client)  # one-time provisioning
 
 repo = Repository(build_table(client))
 prices = PriceCache(repo, MockPriceProvider({"bitcoin": Decimal("50000")}))
@@ -55,7 +62,7 @@ result = engine.buy("u1", "main", "bitcoin", Decimal("1"), Decimal("50000"))
 
 # Sell half at a higher price — realized P&L is computed on the way out.
 result = engine.sell("u1", "main", "bitcoin", Decimal("0.5"), Decimal("60000"))
-print(result.realized_pnl)   # Decimal('5000')
+print(result.realized_pnl)  # Decimal('5000')
 ```
 
 Both return a [`TradeResult`](api-reference.md) with the persisted `trade` and
@@ -72,12 +79,12 @@ price and rolls cash + holdings into a [`Valuation`](api-reference.md) snapshot.
 
 ```python
 snapshot = valuator.value("u1", "main")
-print(snapshot.cash)                   # uninvested cash
-print(snapshot.holdings_value)         # market value of all positions
-print(snapshot.total_value)            # cash + holdings_value
-print(snapshot.total_unrealized_pnl)   # open P&L across holdings
+print(snapshot.cash)  # uninvested cash
+print(snapshot.holdings_value)  # market value of all positions
+print(snapshot.total_value)  # cash + holdings_value
+print(snapshot.total_unrealized_pnl)  # open P&L across holdings
 
-for h in snapshot.holdings:            # each is a HoldingValuation
+for h in snapshot.holdings:  # each is a HoldingValuation
     print(h.symbol, h.quantity, h.price, h.market_value, h.unrealized_pnl)
 ```
 
@@ -91,7 +98,7 @@ page = repo.list_trades("main", limit=50)
 for trade in page.items:
     print(trade)
 
-if page.cursor:                        # more pages remain
+if page.cursor:  # more pages remain
     nxt = repo.list_trades("main", cursor=page.cursor, limit=50)
 ```
 
@@ -103,9 +110,9 @@ prices have crossed.
 ```python
 repo.create_alert("main", "a1", "bitcoin", Direction.ABOVE, Decimal("65000"))
 
-fired = alerts.evaluate(["bitcoin"])   # list[FiredAlert]
+fired = alerts.evaluate(["bitcoin"])  # list[FiredAlert]
 for f in fired:
-    print(f.alert, f.price)            # the alert and the price that crossed it
+    print(f.alert, f.price)  # the alert and the price that crossed it
 ```
 
 Firing is idempotent: a second pass over the same prices fires nothing.
@@ -122,7 +129,7 @@ and returns an ASGI app:
 import boto3
 from hodlbook import create_app
 
-app = create_app(boto3.client("dynamodb"))   # ASGI app
+app = create_app(boto3.client("dynamodb"))  # ASGI app
 # uvicorn mymodule:app
 ```
 
